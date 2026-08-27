@@ -32,8 +32,19 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 
 def cmd_market(args: argparse.Namespace) -> int:
+    from .market import MarketUnavailable
+
     conn = db.connect(Path(args.db))
-    r = scan.run_market_scan(conn)
+    try:
+        r = scan.run_market_scan(conn)
+    except MarketUnavailable as e:
+        # บน CI ไม่ควรให้ตลาดล่มไปหยุดการเก็บข้อมูล Steam ทั้งรอบ
+        # ข้อมูลสองฝั่งเป็นอิสระต่อกัน ขาดฝั่งหนึ่งยังดีกว่าขาดทั้งคู่
+        print(f"ดึงข้อมูลตลาดไม่ได้: {e}", file=sys.stderr)
+        if args.allow_fail:
+            print("ข้ามไปก่อนตามที่สั่ง (--allow-fail)", file=sys.stderr)
+            return 0
+        return 1
     print(f"\nเก็บสต็อกตลาดมาแล้วทั้งหมด {r['market_scans']} รอบ")
     if r["market_scans"] < 2:
         print("(ต้องมีอย่างน้อย 2 รอบถึงจะเห็นว่าสต็อกขยับไปทางไหน)")
@@ -146,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.set_defaults(func=cmd_restore)
 
     sp = sub.add_parser("market", help="เก็บสต็อกของตลาดเช่าหนึ่งรอบ (เบา รันทุกวัน)")
+    sp.add_argument("--allow-fail", action="store_true",
+                    help="ถ้าดึงไม่ได้ให้เตือนแล้วไปต่อ แทนที่จะล้ม (ใช้บน CI)")
     sp.set_defaults(func=cmd_market)
 
     sp = sub.add_parser("dash", help="สร้างหน้า dashboard")

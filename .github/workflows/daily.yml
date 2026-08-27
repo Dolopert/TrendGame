@@ -35,7 +35,17 @@ jobs:
         run: uv run game-radar restore
 
       - name: เก็บสต็อกตลาดเช่า
-        run: uv run game-radar market
+        # ข้อมูลตลาดกับข้อมูล Steam เป็นอิสระต่อกัน ถ้าฝั่งตลาดถูกบล็อก
+        # ก็ยังต้องเก็บฝั่ง Steam ให้ได้ ไม่ใช่ทิ้งทั้งวัน
+        run: |
+          set -o pipefail
+          uv run game-radar market --allow-fail 2>&1 | tee market.log
+          {
+            echo '## ผลการเก็บข้อมูลตลาด'
+            echo '```'
+            cat market.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: เก็บข้อมูล Steam
         run: uv run game-radar scan --metadata-limit 400

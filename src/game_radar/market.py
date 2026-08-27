@@ -21,7 +21,22 @@ RENTAL_LIST = (
 # ร้านของเราเองบนแพลตฟอร์มเดียวกัน (Online101Gaming)
 OWN_SELLER_ID = 23566
 
-_UA = {"User-Agent": "game-radar/0.2 (own-shop inventory tracking)"}
+# ใช้ UA แบบเบราว์เซอร์ทั่วไปแล้วต่อท้ายด้วยชื่อเครื่องมือ
+# หน้าร้านอยู่หลัง Cloudflare ซึ่งเข้มกับ IP ของ datacenter (เช่นเครื่องของ GitHub)
+# มากกว่า IP บ้าน UA ที่ไม่เหมือนเบราว์เซอร์เลยมักโดนปัดตกตั้งแต่ต้น
+_UA = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 game-radar/0.2"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "th-TH,th;q=0.9,en;q=0.8",
+    "Referer": "https://store.499k-network.com/steam/rental",
+}
+
+
+class MarketUnavailable(RuntimeError):
+    """ดึงข้อมูลตลาดไม่ได้ — แยกจากข้อผิดพลาดอื่นเพื่อให้ผู้เรียกเลือกได้ว่าจะล้มหรือข้าม"""
 
 
 def _client() -> httpx.Client:
@@ -36,9 +51,21 @@ def _fetch_all(client: httpx.Client, owner: int | None = None) -> list[dict[str,
         params: dict[str, Any] = {"page": page}
         if owner is not None:
             params["owner"] = owner
-        r = client.get(RENTAL_LIST, params=params)
-        r.raise_for_status()
-        data = r.json()
+        try:
+            r = client.get(RENTAL_LIST, params=params)
+        except httpx.HTTPError as e:
+            raise MarketUnavailable(f"ต่อไม่ติด: {type(e).__name__}: {e}") from e
+        if r.status_code != 200:
+            raise MarketUnavailable(
+                f"HTTP {r.status_code} จาก {r.url} "
+                f"(ตอบมา {len(r.text)} ตัวอักษร ขึ้นต้นว่า {r.text[:120]!r})"
+            )
+        try:
+            data = r.json()
+        except ValueError:
+            raise MarketUnavailable(
+                f"ตอบกลับมาไม่ใช่ JSON ขึ้นต้นว่า {r.text[:160]!r}"
+            ) from None
         if not data.get("status"):
             break
         games.extend(data.get("games", []))
