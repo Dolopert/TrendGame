@@ -53,6 +53,20 @@ CREATE TABLE IF NOT EXISTS snapshot (
 
 CREATE INDEX IF NOT EXISTS idx_snapshot_appid_time ON snapshot(appid, taken_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshot_unique ON snapshot(appid, taken_at);
+
+CREATE TABLE IF NOT EXISTS market_snapshot (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    appid         INTEGER NOT NULL,
+    taken_at      TEXT NOT NULL,
+    scope         TEXT NOT NULL,
+    account_count INTEGER NOT NULL,
+    game_name     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_appid_time
+    ON market_snapshot(appid, scope, taken_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_market_unique
+    ON market_snapshot(appid, taken_at, scope);
 """
 
 
@@ -60,11 +74,39 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# คอลัมน์ที่เพิ่มทีหลัง — SQLite ไม่มี "ADD COLUMN IF NOT EXISTS" เลยต้องเช็คเอง
+LATER_COLUMNS = {
+    "snapshot": {
+        "in_coop_topsellers": "INTEGER DEFAULT 0",
+        "in_coop_upcoming": "INTEGER DEFAULT 0",
+        "in_coop_new": "INTEGER DEFAULT 0",
+        # ลำดับในผลค้นหาของ Steam — เป็นสัญญาณเดียวที่แยกเกมยังไม่วางขายออกจากกันได้
+        # เพราะเกมพวกนั้นไม่มี CCU ไม่มีอันดับ ไม่มีอะไรให้วัดเลย
+        "coop_topsellers_rank": "INTEGER",
+        "coop_upcoming_rank": "INTEGER",
+        "coop_new_rank": "INTEGER",
+    },
+    "title": {
+        "metadata_failed_at": "TEXT",
+    },
+}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, cols in LATER_COLUMNS.items():
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in cols.items():
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    conn.commit()
+
+
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
 
 
@@ -138,26 +180,47 @@ def insert_snapshot(conn: sqlite3.Connection, taken_at: str, row: dict[str, Any]
         """
         INSERT OR REPLACE INTO snapshot
             (appid, taken_at, ccu, peak_in_game, played_rank, last_week_rank,
-             ccu_rank, in_specials, in_new_releases, in_top_sellers, in_coming_soon)
+             ccu_rank, in_specials, in_new_releases, in_top_sellers, in_coming_soon,
+             in_coop_topsellers, in_coop_upcoming, in_coop_new,
+             coop_topsellers_rank, coop_upcoming_rank, coop_new_rank)
         VALUES (:appid, :taken_at, :ccu, :peak_in_game, :played_rank, :last_week_rank,
                 :ccu_rank, :in_specials, :in_new_releases, :in_top_sellers,
-                :in_coming_soon)
+                :in_coming_soon, :in_coop_topsellers, :in_coop_upcoming, :in_coop_new,
+                :coop_topsellers_rank, :coop_upcoming_rank, :coop_new_rank)
         """,
         {"taken_at": taken_at, **row},
     )
 
 
-def stale_appids(conn: sqlite3.Connection, max_age_days: int = 3) -> list[int]:
-    """เกมที่ยังไม่เคยดึง metadata หรือดึงไว้นานแล้ว (ราคาเปลี่ยนบ่อยเพราะลดราคา)"""
+def stale_appids(
+    conn: sqlite3.Connection, max_age_days: int = 3, retry_failed_after_days: int = 14
+) -> list[int]:
+    """เกมที่ยังไม่เคยดึง metadata หรือดึงไว้นานแล้ว (ราคาเปลี่ยนบ่อยเพราะลดราคา)
+
+    เกมที่ appdetails ไม่เคยคืนข้อมูล (บันเดิล/ไม่ขายในไทย) จะถูกพักไว้
+    แทนที่จะยิงซ้ำทุกรอบตลอดไป — เดิมเสียเวลารอบละหลายวินาทีไปกับ 4 appid ที่ไม่มีวันสำเร็จ
+    """
     cur = conn.execute(
         """
         SELECT appid FROM title
-        WHERE metadata_fetched_at IS NULL
-           OR julianday('now') - julianday(metadata_fetched_at) > ?
+        WHERE (
+                metadata_fetched_at IS NULL
+                OR julianday('now') - julianday(metadata_fetched_at) > ?
+              )
+          AND (
+                metadata_failed_at IS NULL
+                OR julianday('now') - julianday(metadata_failed_at) > ?
+              )
         """,
-        (max_age_days,),
+        (max_age_days, retry_failed_after_days),
     )
     return [r["appid"] for r in cur.fetchall()]
+
+
+def mark_metadata_failed(conn: sqlite3.Connection, appid: int) -> None:
+    conn.execute(
+        "UPDATE title SET metadata_failed_at = ? WHERE appid = ?", (utcnow(), appid)
+    )
 
 
 def latest_snapshot_per_title(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -165,7 +228,9 @@ def latest_snapshot_per_title(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         """
         SELECT t.*, s.taken_at, s.ccu, s.peak_in_game, s.played_rank,
                s.last_week_rank, s.ccu_rank, s.in_specials, s.in_new_releases,
-               s.in_top_sellers, s.in_coming_soon
+               s.in_top_sellers, s.in_coming_soon, s.in_coop_topsellers,
+               s.in_coop_upcoming, s.in_coop_new, s.coop_topsellers_rank,
+               s.coop_upcoming_rank, s.coop_new_rank
         FROM title t
         JOIN snapshot s ON s.id = (
             SELECT id FROM snapshot WHERE appid = t.appid
@@ -177,17 +242,90 @@ def latest_snapshot_per_title(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def ccu_history(conn: sqlite3.Connection, appid: int, limit: int = 30) -> list[tuple[str, int]]:
+    """ค่า CCU วันละหนึ่งจุด — เอาค่าล่าสุดของแต่ละวัน
+
+    ต้องยุบเป็นรายวัน ไม่ใช่คืนทุกแถว เพราะรันสแกนสองครั้งห่างกันหนึ่งนาทีได้
+    ถ้าไม่ยุบ ค่ากลางจะถูกถ่วงด้วยจุดที่ซ้ำกันเองในวันเดียว แล้วอัตราการโตจะเพี้ยน
+    (เคยทำให้เกมที่มีคนเล่น 177 คนขึ้นเป็นอันดับหนึ่งมาแล้ว)
+    """
     cur = conn.execute(
         """
-        SELECT taken_at, ccu FROM snapshot
+        SELECT date(taken_at) AS day, ccu, MAX(taken_at) AS latest
+        FROM snapshot
         WHERE appid = ? AND ccu IS NOT NULL
-        ORDER BY taken_at DESC LIMIT ?
+        GROUP BY date(taken_at)
+        ORDER BY day DESC LIMIT ?
         """,
         (appid, limit),
     )
-    return [(r["taken_at"], r["ccu"]) for r in reversed(cur.fetchall())]
+    return [(r["latest"], r["ccu"]) for r in reversed(cur.fetchall())]
 
 
 def scan_count(conn: sqlite3.Connection) -> int:
     cur = conn.execute("SELECT COUNT(DISTINCT taken_at) AS n FROM snapshot")
+    return cur.fetchone()["n"]
+
+
+# ---------- ฝั่งตลาดจริง (สต็อกของร้านเช่า) ----------
+
+def insert_market(
+    conn: sqlite3.Connection, taken_at: str, scope: str, games: list[dict[str, Any]]
+) -> int:
+    """บันทึกสต็อก ณ เวลาหนึ่ง — scope เป็น 'platform' (ทุกร้านรวมกัน) หรือ 'mine'"""
+    n = 0
+    for g in games:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO market_snapshot
+                (appid, taken_at, scope, account_count, game_name)
+            VALUES (?,?,?,?,?)
+            """,
+            (g["app_id"], taken_at, scope, g.get("account_count", 0), g.get("game_name")),
+        )
+        n += 1
+    return n
+
+
+def latest_market(conn: sqlite3.Connection, scope: str = "platform") -> dict[int, int]:
+    """สต็อกล่าสุดของแต่ละเกม -> {appid: จำนวนไอดี}"""
+    cur = conn.execute(
+        """
+        SELECT appid, account_count FROM market_snapshot
+        WHERE scope = ? AND taken_at = (
+            SELECT MAX(taken_at) FROM market_snapshot WHERE scope = ?
+        )
+        """,
+        (scope, scope),
+    )
+    return {r["appid"]: r["account_count"] for r in cur.fetchall()}
+
+
+def market_delta(conn: sqlite3.Connection, scope: str = "platform") -> dict[int, int]:
+    """สต็อกเปลี่ยนไปเท่าไรจากครั้งก่อนหน้า -> {appid: ส่วนต่าง}
+
+    บวก = คู่แข่งกำลังลงทุนเพิ่มในเกมนั้น ซึ่งเป็นสัญญาณว่าเขาเห็นอะไรบางอย่าง
+    """
+    cur = conn.execute(
+        "SELECT DISTINCT taken_at FROM market_snapshot WHERE scope = ? ORDER BY taken_at DESC LIMIT 2",
+        (scope,),
+    )
+    times = [r["taken_at"] for r in cur.fetchall()]
+    if len(times) < 2:
+        return {}
+    now, prev = times[0], times[1]
+    cur = conn.execute(
+        """
+        SELECT a.appid, a.account_count - COALESCE(b.account_count, 0) AS d
+        FROM market_snapshot a
+        LEFT JOIN market_snapshot b
+          ON b.appid = a.appid AND b.scope = a.scope AND b.taken_at = ?
+        WHERE a.scope = ? AND a.taken_at = ?
+        """,
+        (prev, scope, now),
+    )
+    return {r["appid"]: r["d"] for r in cur.fetchall()}
+
+
+def market_scan_count(conn: sqlite3.Connection) -> int:
+    cur = conn.execute("SELECT COUNT(DISTINCT taken_at) AS n FROM market_snapshot")
     return cur.fetchone()["n"]

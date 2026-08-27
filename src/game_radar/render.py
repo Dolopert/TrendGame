@@ -108,14 +108,24 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
   <div class="stats" id="stats"></div>
 
   <div class="bar">
-    <input type="search" id="q" placeholder="ค้นชื่อเกม..." style="min-width:180px">
-    <label><input type="checkbox" id="fProspect" checked> เฉพาะเกมที่เช่าได้ (มีราคา)</label>
+    <input type="search" id="q" placeholder="ค้นชื่อเกม..." style="min-width:170px">
+    <label><input type="checkbox" id="fOpp" checked> เฉพาะเกมที่น่าซื้อ</label>
+    <label><input type="checkbox" id="fUnstocked"> ยังไม่มีใครสต็อก</label>
+    <label>อายุเกม
+      <select id="fFresh">
+        <option value="all">ทั้งหมด</option>
+        <option value="upcoming">ยังไม่วางขาย</option>
+        <option value="fresh">ออกไม่เกิน 1 ปี</option>
+        <option value="recent">1-2 ปี</option>
+        <option value="old">เกิน 2 ปี</option>
+      </select>
+    </label>
     <label>ผู้เล่น
       <select id="fMode">
         <option value="all">ทั้งหมด</option>
-        <option value="single">Single-player ล้วน</option>
-        <option value="multi">มี Multi-player</option>
         <option value="coop">มี Co-op</option>
+        <option value="multi">มี Multi-player</option>
+        <option value="single">Single-player ล้วน</option>
       </select>
     </label>
     <label>แนว <select id="fGenre"><option value="">ทั้งหมด</option></select></label>
@@ -129,9 +139,10 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
     </label>
     <label>เรียงตาม
       <select id="fSort">
+        <option value="opp">คะแนนน่าซื้อ</option>
         <option value="surge">คะแนนกระแส</option>
+        <option value="stock">คู่แข่งสต็อกน้อยสุด</option>
         <option value="ccu">คนเล่นตอนนี้</option>
-        <option value="delta">อันดับพุ่ง</option>
         <option value="price">ราคาถูกสุด</option>
       </select>
     </label>
@@ -152,22 +163,30 @@ const esc = s => String(s).replace(/[&<>"]/g, c =>
 const baht = c => c == null ? '—' : '฿' + nf.format(Math.round(c / 100));
 
 document.getElementById('sub').textContent =
-  'สแกนล่าสุด ' + META.scanned_at + ' · ' + META.total + ' เกม · เก็บข้อมูลมาแล้ว ' +
-  META.scans + ' รอบ';
+  'สแกนล่าสุด ' + META.scanned_at + ' · ' + META.total + ' เกมในเรดาร์ · Steam ' +
+  META.scans + ' รอบ · ตลาดเช่า ' + META.market_scans + ' รอบ';
 
 document.getElementById('stats').innerHTML = [
-  ['เกมทั้งหมด', META.total],
-  ['เช่าได้', META.prospects],
-  ['เพิ่งเข้าชาร์ต', META.new_entries],
-  ['อันดับพุ่งขึ้น', META.climbers],
+  ['น่าซื้อ', META.opportunities],
+  ['ยังไม่มีใครสต็อก', META.unstocked],
+  ['ยังไม่วางขาย', META.upcoming],
+  ['ไอดีของคุณ', META.mine],
 ].map(([k, v]) => '<div class="stat"><b>' + nf.format(v) + '</b><span>' + k +
   '</span></div>').join('');
 
+const warns = [];
 if (META.scans < 4) {
+  warns.push('<b>ข้อมูล Steam ยังไม่พอ</b> — เก็บมา ' + META.scans + ' รอบ ' +
+    'คะแนนกระแสยังใช้อันดับรายสัปดาห์ที่ Steam ให้มา ซึ่งหยาบกว่าการเทียบประวัติจริง ' +
+    'ครบ 4 รอบเมื่อไหร่ระบบสลับฐานเอง');
+}
+if (META.market_scans < 2) {
+  warns.push('<b>ข้อมูลตลาดยังไม่พอ</b> — เก็บมา ' + META.market_scans + ' รอบ ' +
+    'ยังบอกไม่ได้ว่าคู่แข่งกำลังเพิ่มสต็อกเกมไหน ต้องมีอย่างน้อย 2 รอบ');
+}
+if (warns.length) {
   document.getElementById('warn').innerHTML =
-    '<div class="warn"><b>ยังเก็บข้อมูลไม่พอ</b> — เก็บมา ' + META.scans + ' รอบ ' +
-    'คะแนนกระแสตอนนี้คำนวณจากอันดับรายสัปดาห์ที่ Steam ให้มา ซึ่งหยาบกว่าการเทียบ' +
-    'ประวัติจริง พอรันครบ 4 รอบ (4 วัน) ระบบจะสลับไปใช้ฐาน "ประวัติจริง" เอง</div>';
+    warns.map(w => '<div class="warn">' + w + '</div>').join('');
 }
 
 const genres = [...new Set(DATA.flatMap(d => d.genres))].sort();
@@ -190,48 +209,67 @@ function spark(hist) {
 
 function scoreClass(s) { return s >= 6 ? 's-hot' : s >= 3.5 ? 's-warm' : 's-mild'; }
 
+const FRESH_LABEL = {
+  upcoming: ['ยังไม่วางขาย', 'pvp'],
+  fresh: ['ออกไม่เกิน 1 ปี', 'single'],
+  recent: ['1-2 ปี', ''],
+  old: ['เกิน 2 ปี', ''],
+  unknown: ['ไม่รู้วันวางขาย', '']
+};
+
 function card(d) {
   const modes = [];
-  if (d.is_single && !d.is_multi) modes.push('<span class="chip single">Single-player</span>');
-  if (d.is_multi) modes.push('<span class="chip multi">Multi-player</span>');
+  const fl = FRESH_LABEL[d.freshness] || ['', ''];
+  if (fl[0]) modes.push('<span class="chip ' + fl[1] + '">' + fl[0] + '</span>');
   if (d.is_coop) modes.push('<span class="chip multi">Co-op</span>');
+  else if (d.is_multi) modes.push('<span class="chip multi">Multi-player</span>');
+  else if (d.is_single) modes.push('<span class="chip">Single-player</span>');
   if (d.is_online_pvp) modes.push('<span class="chip pvp">Online PvP</span>');
-  if (d.has_family_sharing) modes.push('<span class="chip">Family Sharing</span>');
 
-  let delta = '';
-  if (d.entered_chart) delta = '<span class="delta new">เข้าชาร์ตใหม่ ▲' + d.rank_delta + '</span>';
-  else if (d.rank_delta > 0) delta = '<span class="delta up">▲ ' + d.rank_delta + ' อันดับ</span>';
-  else if (d.rank_delta < 0) delta = '<span class="delta down">▼ ' + (-d.rank_delta) + '</span>';
+  let stock;
+  if (d.stocked_mine > 0)
+    stock = '<span class="delta up">คุณมี ' + d.stocked_mine + '/' + d.stocked_total + ' ใบ</span>';
+  else if (d.stocked_total === 0)
+    stock = '<span class="delta new">ยังไม่มีใครสต็อก</span>';
+  else
+    stock = '<span class="delta down">คู่แข่งมี ' + d.stocked_total + ' ใบ</span>';
+  if (d.stock_delta > 0) stock += ' <span class="delta up">+' + d.stock_delta + '</span>';
 
   const disc = d.discount_percent > 0
     ? '<span class="off">-' + d.discount_percent + '%</span> ' : '';
   const b = BASIS[d.surge_basis] || ['—', ''];
 
   const notes = d.blockers.map(x => '<div class="blocked">⚠ ' + esc(x) + '</div>')
-    .concat(d.notes.slice(0, 2).map(n => '<div>· ' + esc(n) + '</div>')).join('');
+    .concat(d.notes.slice(0, 3).map(n => '<div>· ' + esc(n) + '</div>')).join('');
 
-  return '<article class="card' + (d.is_prospect ? '' : ' dim') + '">' +
+  const price = d.status === 'upcoming' && d.price_final == null
+    ? 'ยังไม่ประกาศราคา' : (d.is_free ? 'ฟรี' : baht(d.price_final));
+
+  return '<article class="card' + (d.opportunity_score > 0 ? '' : ' dim') + '">' +
     '<div class="thumb">' +
     (d.header_image ? '<img loading="lazy" src="' + esc(d.header_image) + '" alt="">' : '') +
     (d.played_rank ? '<span class="rankbadge">#' + d.played_rank + '</span>' : '') +
-    '<span class="pricebadge">' + disc + (d.is_free ? 'ฟรี' : baht(d.price_final)) + '</span>' +
+    '<span class="pricebadge">' + disc + price + '</span>' +
     '</div><div class="body">' +
     '<div class="name">' + esc(d.name) + '</div>' +
     '<div class="chips">' + modes.join('') + '</div>' +
     '<div class="chips">' + d.genres.map(g => '<span class="chip">' + esc(g) + '</span>').join('') + '</div>' +
     '<div class="metrics"><div class="ccu"><b>' +
     (d.ccu == null ? '—' : nf.format(d.ccu)) +
-    '</b><span>คนเล่นตอนนี้</span></div>' + delta + spark(d.history) + '</div>' +
-    '<div class="surge"><span class="score ' + scoreClass(d.surge_score) + '">' +
-    d.surge_score.toFixed(1) + '</span><span>คะแนนกระแส</span>' +
-    '<span class="basis" title="' + esc(b[1]) + '">' + esc(b[0]) + '</span></div>' +
+    '</b><span>คนเล่นตอนนี้</span></div>' + stock + spark(d.history) + '</div>' +
+    '<div class="surge"><span class="score ' + scoreClass(d.opportunity_score) + '">' +
+    d.opportunity_score.toFixed(1) + '</span><span>น่าซื้อ</span>' +
+    '<span class="basis" title="คะแนนกระแสดิบ ฐาน: ' + esc(b[0]) + ' — ' + esc(b[1]) + '">' +
+    'กระแส ' + d.surge_score.toFixed(1) + '</span></div>' +
     (notes ? '<div class="notes">' + notes + '</div>' : '') +
     '</div></article>';
 }
 
 function apply() {
   const q = document.getElementById('q').value.trim().toLowerCase();
-  const onlyP = document.getElementById('fProspect').checked;
+  const onlyOpp = document.getElementById('fOpp').checked;
+  const onlyFree = document.getElementById('fUnstocked').checked;
+  const fresh = document.getElementById('fFresh').value;
   const mode = document.getElementById('fMode').value;
   const genre = document.getElementById('fGenre').value;
   const price = document.getElementById('fPrice').value;
@@ -239,7 +277,9 @@ function apply() {
 
   const rows = DATA.filter(d => {
     if (q && !d.name.toLowerCase().includes(q)) return false;
-    if (onlyP && !d.is_prospect) return false;
+    if (onlyOpp && !(d.opportunity_score > 0)) return false;
+    if (onlyFree && d.stocked_total > 0) return false;
+    if (fresh !== 'all' && d.freshness !== fresh) return false;
     if (mode === 'single' && !(d.is_single && !d.is_multi)) return false;
     if (mode === 'multi' && !d.is_multi) return false;
     if (mode === 'coop' && !d.is_coop) return false;
@@ -252,18 +292,19 @@ function apply() {
   });
 
   const key = {
+    opp: d => -d.opportunity_score,
     surge: d => -d.surge_score,
+    stock: d => d.stocked_total,
     ccu: d => -(d.ccu == null ? -1 : d.ccu),
-    delta: d => -(d.rank_delta == null ? -999 : d.rank_delta),
     price: d => d.price_final == null ? Infinity : d.price_final,
   }[sort];
-  rows.sort((a, b) => key(a) - key(b));
+  rows.sort((a, b) => key(a) - key(b) || b.opportunity_score - a.opportunity_score);
 
   document.getElementById('grid').innerHTML = rows.map(card).join('');
   document.getElementById('empty').hidden = rows.length > 0;
 }
 
-['q', 'fProspect', 'fMode', 'fGenre', 'fPrice', 'fSort'].forEach(id =>
+['q', 'fOpp', 'fUnstocked', 'fFresh', 'fMode', 'fGenre', 'fPrice', 'fSort'].forEach(id =>
   document.getElementById(id).addEventListener('input', apply));
 apply();
 </script>
@@ -272,10 +313,14 @@ apply();
 
 def build(conn: sqlite3.Connection, out_path: Path) -> dict[str, int]:
     rows = db.latest_snapshot_per_title(conn)
+    stocked = db.latest_market(conn, "platform")
+    mine = db.latest_market(conn, "mine")
+    delta = db.market_delta(conn, "platform")
+
     items: list[Assessment] = []
     for row in rows:
         hist = [c for _, c in db.ccu_history(conn, row["appid"])]
-        items.append(assess(conn, row, hist))
+        items.append(assess(conn, row, hist, stocked, mine, delta))
 
     payload = []
     for row, a in zip(rows, items):
@@ -292,13 +337,18 @@ def build(conn: sqlite3.Connection, out_path: Path) -> dict[str, int]:
     except ValueError:
         pass
 
+    opps = [a for a in items if a.opportunity_score > 0]
     meta = {
         "scanned_at": scanned_at,
         "total": len(items),
-        "prospects": sum(1 for a in items if a.is_prospect),
-        "new_entries": sum(1 for a in items if a.entered_chart),
-        "climbers": sum(1 for a in items if (a.rank_delta or 0) > 0),
+        "opportunities": len(opps),
+        "unstocked": sum(1 for a in opps if a.stocked_total == 0),
+        "upcoming": sum(1 for a in items if a.status == "upcoming"),
+        # นับจากข้อมูลตลาดตรง ๆ ไม่ใช่จาก items เพราะเกมที่เราสต็อกไว้
+        # อาจไม่อยู่ในเรดาร์ (เช่นเกมเก่าที่ไม่เข้าเกณฑ์ค้นหา) แล้วจะหายไปจากยอดรวม
+        "mine": sum(mine.values()),
         "scans": db.scan_count(conn),
+        "market_scans": db.market_scan_count(conn),
     }
 
     html = (

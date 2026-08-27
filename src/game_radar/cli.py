@@ -30,6 +30,15 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_market(args: argparse.Namespace) -> int:
+    conn = db.connect(Path(args.db))
+    r = scan.run_market_scan(conn)
+    print(f"\nเก็บสต็อกตลาดมาแล้วทั้งหมด {r['market_scans']} รอบ")
+    if r["market_scans"] < 2:
+        print("(ต้องมีอย่างน้อย 2 รอบถึงจะเห็นว่าสต็อกขยับไปทางไหน)")
+    return 0
+
+
 def cmd_dash(args: argparse.Namespace) -> int:
     conn = db.connect(Path(args.db))
     if db.scan_count(conn) == 0:
@@ -39,8 +48,9 @@ def cmd_dash(args: argparse.Namespace) -> int:
     meta = render.build(conn, out)
     print(f"สร้าง dashboard แล้ว: {out}")
     print(
-        f"  {meta['total']} เกม | เช่าได้ {meta['prospects']} | "
-        f"เพิ่งเข้าชาร์ต {meta['new_entries']} | อันดับพุ่ง {meta['climbers']}"
+        f"  {meta['total']} เกม | น่าซื้อ {meta['opportunities']} | "
+        f"ยังไม่มีใครสต็อก {meta['unstocked']} | ยังไม่วางขาย {meta['upcoming']} | "
+        f"ไอดีของคุณ {meta['mine']}"
     )
     return 0
 
@@ -52,23 +62,34 @@ def cmd_top(args: argparse.Namespace) -> int:
         print("ยังไม่มีข้อมูล — รัน `game-radar scan` ก่อน", file=sys.stderr)
         return 1
 
+    stocked = db.latest_market(conn, "platform")
+    mine = db.latest_market(conn, "mine")
+    delta = db.market_delta(conn, "platform")
+
     items = []
     for row in rows:
         hist = [c for _, c in db.ccu_history(conn, row["appid"])]
-        a = assess(conn, row, hist)
-        if args.prospects_only and not a.is_prospect:
+        a = assess(conn, row, hist, stocked, mine, delta)
+        if args.prospects_only and a.opportunity_score <= 0:
             continue
         items.append(a)
-    items.sort(key=lambda a: -a.surge_score)
+    items.sort(key=lambda a: -a.opportunity_score)
 
-    print(f"\n{'คะแนน':>6}  {'CCU':>9}  {'ราคา':>9}  โหมด        เกม")
-    print("-" * 78)
+    fresh_th = {"upcoming": "ยังไม่ขาย", "fresh": "<1 ปี", "recent": "1-2 ปี",
+                "old": ">2 ปี", "unknown": "?"}
+    print(f"\n{'น่าซื้อ':>7} {'กระแส':>6} {'ราคา':>7} {'อายุ':<10} {'สต็อกตลาด':<12} เกม")
+    print("-" * 84)
     for a in items[: args.limit]:
-        mode = "Single" if a.is_single and not a.is_multi else "Multi" if a.is_multi else "-"
         price = f"{a.price_baht:,.0f}" if a.price_baht is not None else "-"
-        ccu = f"{a.ccu:,}" if a.ccu is not None else "-"
-        flag = " *ใหม่" if a.played_rank and not a.last_week_rank else ""
-        print(f"{a.surge_score:>6.1f}  {ccu:>9}  {price:>9}  {mode:<10}  {a.name}{flag}")
+        if a.stocked_mine:
+            stock = f"คุณ {a.stocked_mine}/{a.stocked_total}"
+        elif a.stocked_total == 0:
+            stock = "ยังไม่มีใคร"
+        else:
+            stock = f"คู่แข่ง {a.stocked_total}"
+        co = " [co-op]" if a.is_coop else ""
+        print(f"{a.opportunity_score:>7.1f} {a.surge_score:>6.1f} {price:>7} "
+              f"{fresh_th.get(a.freshness, '?'):<10} {stock:<12} {a.name}{co}")
     return 0
 
 
@@ -89,6 +110,9 @@ def main(argv: list[str] | None = None) -> int:
     sp = sub.add_parser("scan", help="เก็บข้อมูลหนึ่งรอบ")
     add_scan_args(sp)
     sp.set_defaults(func=cmd_scan)
+
+    sp = sub.add_parser("market", help="เก็บสต็อกของตลาดเช่าหนึ่งรอบ (เบา รันทุกวัน)")
+    sp.set_defaults(func=cmd_market)
 
     sp = sub.add_parser("dash", help="สร้างหน้า dashboard")
     sp.add_argument("--out", default=str(DEFAULT_OUT))

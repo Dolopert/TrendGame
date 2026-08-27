@@ -98,3 +98,63 @@ def app_details(
         return node.get("data")
     except (httpx.HTTPError, ValueError):
         return None
+
+
+SEARCH = "https://store.steampowered.com/search/results/"
+
+# ถังค้นหาที่มองไปข้างหน้า — แทนที่การไล่ top-100 CCU ซึ่งเป็นภาพอดีต
+#   topsellers        เกม co-op ที่ขายดีตอนนี้ = คนกำลังซื้อ = กำลังจะมีคนอยากเช่า
+#   popularcomingsoon เกม co-op ที่ยังไม่วางขาย = ของที่ยังไม่มีใครสต็อกได้เลย
+#   Released_DESC     เกม co-op ที่เพิ่งวางขาย = หน้าต่างที่ตลาดยังไม่ทันตั้งตัว
+COOP_BUCKETS = {
+    "coop_topsellers": {"filter": "topsellers"},
+    "coop_upcoming": {"filter": "popularcomingsoon"},
+    "coop_new": {"sort_by": "Released_DESC"},
+}
+
+
+def search_coop(
+    client: httpx.Client, bucket: str, pages: int = 2, cc: str = "th"
+) -> list[tuple[int, str]]:
+    """ค้นเกมที่ติดหมวด Co-op จากหน้าค้นหาของ Steam
+
+    หน้านี้คืน JSON ได้ถ้าใส่ json=1 และรับ category2=9 (Co-op) เป็นตัวกรอง
+    appid ไม่ได้มาเป็นฟิลด์ตรง ๆ ต้องแกะจาก URL รูปปกที่มีรูปแบบ /apps/<id>/
+    """
+    import re
+
+    opts = COOP_BUCKETS.get(bucket)
+    if opts is None:
+        raise ValueError(f"ไม่รู้จักถัง {bucket}")
+
+    found: list[tuple[int, str]] = []
+    seen: set[int] = set()
+    for page in range(pages):
+        params = {
+            "query": "",
+            "start": page * 50,
+            "count": 50,
+            "category2": CAT_COOP,
+            "cc": cc,
+            "l": "en",
+            "json": 1,
+            **opts,
+        }
+        try:
+            r = client.get(SEARCH, params=params)
+            r.raise_for_status()
+            items = r.json().get("items", [])
+        except (httpx.HTTPError, ValueError):
+            break
+        if not items:
+            break
+        for it in items:
+            m = re.search(r"/apps/(\d+)/", it.get("logo", "") or "")
+            if not m:
+                continue
+            appid = int(m.group(1))
+            if appid in seen:
+                continue
+            seen.add(appid)
+            found.append((appid, it.get("name") or f"app {appid}"))
+    return found
