@@ -152,6 +152,7 @@ class Assessment:
     stock_delta: int
     status: str
     opportunity_score: float
+    score_parts: dict = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     history: list[int] = field(default_factory=list)
@@ -198,59 +199,67 @@ def _freshness(age: int | None, coming_soon: bool) -> str:
     return "old"
 
 
-def _opportunity(a: dict) -> float:
-    """คะแนนโอกาสสำหรับร้านที่เพิ่งเข้าตลาด
+def _opportunity(a: dict) -> tuple[float, dict]:
+    """คะแนนโอกาส + รายละเอียดว่าคะแนนมาจากไหน
 
     ตอบคำถาม: "เกมนี้น่าเอามาปล่อยเช่าแค่ไหน"
 
-    ไม่ได้คิดเรื่องคู่แข่งสต็อกไว้เท่าไรแล้ว (ถอดออกตามที่เจ้าของร้านสั่ง)
-    ตัวเลขสต็อกยังแสดงบน dashboard ให้กรองและเรียงเองได้
+    คืน parts มาด้วยเสมอ เพื่อให้ dashboard กางให้ดูได้ว่าตัวคูณแต่ละตัวมาจากอะไร
+    คะแนนที่อธิบายไม่ได้ ใช้ตัดสินใจเรื่องเงินไม่ได้
     """
-    if a["status"] == "blocked":
-        return 0.0
-    if not (a["is_coop"] or a["is_multi"]):
-        return 0.0
-    if a["freshness"] in ("old", "unknown") and not a["is_evergreen"]:
-        return 0.0
-    # เกมที่วางขายแล้วต้องมีคนเล่นถึงพื้นก่อน — เกมยังไม่ขายยกเว้นเพราะยังไม่มี CCU ให้วัด
-    if a["status"] == "prospect" and (a["ccu"] or 0) < MIN_CCU_FOR_RENTAL:
-        return 0.0
+    parts: dict = {"reason": None, "steps": []}
 
-    # เกมยังไม่วางขายไม่มี CCU ไม่มีอันดับ ไม่มีประวัติ — สัญญาณเดียวที่เหลือคือ
-    # ลำดับในหน้า "popular upcoming" ของ Steam ซึ่งเรียงตามยอด wishlist
-    # ถ้าไม่ใช้ตรงนี้ เกมยังไม่ออกทุกตัวจะได้คะแนนเท่ากันหมดจนเรียงลำดับไม่ได้
-    def from_rank(r: int | None, weight: float) -> float:
+    if a["status"] == "blocked":
+        parts["reason"] = "ติด blocker"
+        return 0.0, parts
+    if not (a["is_coop"] or a["is_multi"]):
+        parts["reason"] = "เล่นคนเดียวล้วน — ตลาดเช่าแทบไม่มีดีมานด์"
+        return 0.0, parts
+    if a["freshness"] in ("old", "unknown") and not a["is_evergreen"]:
+        parts["reason"] = "เกมเก่าและตลาดก็ไม่ได้สต็อก"
+        return 0.0, parts
+    if a["status"] == "prospect" and (a["ccu"] or 0) < MIN_CCU_FOR_RENTAL:
+        parts["reason"] = f"คนเล่นแค่ {a['ccu'] or 0:,} ต่ำกว่าพื้น {MIN_CCU_FOR_RENTAL:,}"
+        return 0.0, parts
+
+    def from_rank(r, weight):
         return 0.0 if not r else weight / (1 + r / 15)
 
     if a["status"] == "upcoming":
         base = from_rank(a["coop_upcoming_rank"], 6.5)
+        src = f"อันดับ {a['coop_upcoming_rank']} ในเกม co-op ที่กำลังจะมา"
     else:
-        # เกมที่วางขายแล้ว: เอาสัญญาณที่แรงกว่าระหว่างกระแสของตัวเอง
-        # กับการติดอันดับขายดีในหมวด co-op
-        base = max(a["surge_score"], from_rank(a["coop_topsellers_rank"], 6.0))
-        # สองสัญญาณข้างบนมาจากชาร์ตของ Steam ซึ่งครอบคลุมแคบมาก เกมที่ตลาดเช่า
-        # ลงเงินจริงส่วนใหญ่ไม่ติดทั้งคู่ แล้วได้ base เป็นศูนย์ทั้งที่ขายได้จริง
-        # (RV There Yet? 25 ใบ · Schedule I 16 · Raft 15 · Subnautica 2 11 — ศูนย์หมด)
-        # การที่ร้านยอมจมเงินซื้อไอดีเก็บไว้หลายใบ คือหลักฐานดีมานด์ที่ตรงกว่าชาร์ต
+        cands = [(a["surge_score"], "กระแสของตัวเกมเอง")]
+        if a["coop_topsellers_rank"]:
+            cands.append((from_rank(a["coop_topsellers_rank"], 6.0),
+                          f"อันดับ {a['coop_topsellers_rank']} ขายดีหมวด co-op"))
         if a["stocked_total"] >= MARKET_EVIDENCE_MIN_STOCK:
-            base = max(base, 2.0 + 1.5 * math.log10(a["stocked_total"]))
+            cands.append((2.0 + 1.5 * math.log10(a["stocked_total"]),
+                          f"ตลาดสต็อกไว้ {a['stocked_total']} ใบ"))
+        base, src = max(cands, key=lambda c: c[0])
+
     if base <= 0:
-        return 0.0
+        parts["reason"] = "ไม่มีสัญญาณอะไรเลย ไม่ติดชาร์ต ตลาดก็ไม่สต็อก"
+        return 0.0, parts
 
     fresh_boost = (
-        1.0
-        if a["is_evergreen"]
+        1.0 if a["is_evergreen"]
         else {"upcoming": 1.6, "fresh": 1.35, "recent": 1.0}[a["freshness"]]
     )
+    fresh_label = {"upcoming": "ยังไม่วางขาย", "fresh": "ออกไม่เกิน 1 ปี",
+                   "recent": "ออกมา 1-2 ปี"}.get(a["freshness"], "ขายได้ตลอด")
     coop_boost = 1.25 if a["is_coop"] else 1.0
+    pf = price_fit(a["price_final"])
+    price_label = ("ไม่มีราคา" if a["price_final"] is None
+                   else f"฿{a['price_final']/100:,.0f}")
 
-    # หมายเหตุ: เคยคูณด้วยช่องว่างที่เหลือในตลาด (ยิ่งคู่แข่งสต็อกเยอะ คะแนนยิ่งต่ำ)
-    # เอาออกตามที่เจ้าของร้านสั่ง — คะแนนนี้จึงวัด "เกมนี้น่าเอามาปล่อยเช่าแค่ไหน"
-    # ล้วน ๆ ไม่ได้ตัดสินใจแทนว่าควรเลี่ยงสนามที่มีคนอยู่แล้วหรือไม่
-    # ตัวเลขสต็อกยังเก็บและแสดงอยู่ครบ ใช้เรียงลำดับหรือกรองเองได้บน dashboard
-    return round(
-        base * fresh_boost * coop_boost * price_fit(a["price_final"]), 2
-    )
+    parts["steps"] = [
+        ("ฐาน", round(base, 2), src),
+        ("ความสด", fresh_boost, fresh_label),
+        ("co-op", coop_boost, "มี Co-op" if a["is_coop"] else "มีแค่ Multi-player"),
+        ("ราคา", pf, price_label),
+    ]
+    return round(base * fresh_boost * coop_boost * pf, 2), parts
 
 
 def assess(
@@ -339,6 +348,8 @@ def assess(
         "ccu": ccu,
     }
 
+    opp_score, opp_parts = _opportunity(payload)
+
     return Assessment(
         appid=row["appid"],
         name=row["name"],
@@ -376,7 +387,8 @@ def assess(
         stocked_mine=n_mine,
         stock_delta=d,
         status=status,
-        opportunity_score=_opportunity(payload),
+        opportunity_score=opp_score,
+        score_parts=opp_parts,
         blockers=blockers,
         notes=notes,
         history=hist,

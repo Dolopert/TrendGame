@@ -96,6 +96,30 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
 .notes{font-size:.73rem;color:var(--muted);display:flex;flex-direction:column;gap:3px}
 .blocked{color:var(--warm)}
 .empty{text-align:center;color:var(--muted);padding:60px 20px}
+.views{display:flex;gap:6px;margin-bottom:14px}
+.viewbtn{background:var(--panel);border:1px solid var(--line);color:var(--muted);
+  border-radius:8px;padding:7px 14px;font-size:.84rem;font-family:inherit;cursor:pointer}
+.viewbtn[aria-pressed=true]{color:var(--fg);border-color:var(--accent)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:16px;margin-bottom:22px}
+.panel h2{font-size:.95rem;margin:0 0 2px;font-weight:600}
+.panel p{margin:0 0 12px;color:var(--muted);font-size:.78rem}
+.chartwrap{overflow-x:auto}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:.75rem}
+.legend span{display:flex;align-items:center;gap:5px;color:var(--muted)}
+.legend i{width:11px;height:3px;border-radius:2px;display:inline-block}
+table.rank{width:100%;border-collapse:collapse;font-size:.85rem}
+table.rank th{text-align:left;font-weight:500;color:var(--muted);font-size:.75rem;
+  padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.rank td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.rank tr:last-child td{border-bottom:none}
+table.rank a{color:inherit;text-decoration:none}
+table.rank a:hover{text-decoration:underline}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pos{color:var(--muted);font-variant-numeric:tabular-nums;width:38px}
+.rthumb{width:72px;height:34px;object-fit:cover;border-radius:4px;display:block}
+a.card{text-decoration:none;color:inherit}
+a.card:hover{border-color:var(--accent)}
 .warn{background:var(--chip);border:1px solid var(--line);
   border-left:3px solid var(--warm);
   border-radius:8px;padding:12px 14px;margin-bottom:20px;font-size:.84rem}
@@ -106,6 +130,18 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
   <div class="sub" id="sub"></div>
   <div id="warn"></div>
   <div class="stats" id="stats"></div>
+
+  <div class="panel" id="chartpanel">
+    <h2>ผู้เล่นรวมตามเวลา</h2>
+    <p id="charthint"></p>
+    <div class="chartwrap" id="chart"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="views">
+    <button class="viewbtn" id="vCards" aria-pressed="true">การ์ด</button>
+    <button class="viewbtn" id="vRank" aria-pressed="false">อันดับผู้เล่น</button>
+  </div>
 
   <div class="bar">
     <input type="search" id="q" placeholder="ค้นชื่อเกม..." style="min-width:170px">
@@ -150,6 +186,7 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
   </div>
 
   <div class="grid" id="grid"></div>
+  <div id="ranktable" hidden></div>
   <div class="empty" id="empty" hidden>ไม่มีเกมที่ตรงเงื่อนไข</div>
 </div>
 
@@ -210,6 +247,24 @@ function spark(hist) {
 
 function scoreClass(s) { return s >= 6 ? 's-hot' : s >= 3.5 ? 's-warm' : 's-mild'; }
 
+const NL = String.fromCharCode(10);
+const steamUrl = id => 'https://store.steampowered.com/app/' + id + '/';
+
+function breakdown(d) {
+  const p = d.score_parts || {};
+  if (!p.steps || !p.steps.length) {
+    return 'คะแนน 0 — ' + (p.reason || 'ไม่เข้าเกณฑ์');
+  }
+  const lines = ['คะแนนน่าซื้อ = ' + d.opportunity_score.toFixed(2), ''];
+  p.steps.forEach(([name, val, why], i) => {
+    const op = i === 0 ? '   ' : ' × ';
+    lines.push(op + name + ' ' + val + '   (' + why + ')');
+  });
+  lines.push('');
+  lines.push('ตัวคูณต่ำกว่า 1 คือหักคะแนน สูงกว่า 1 คือเพิ่ม');
+  return lines.join(NL);
+}
+
 const FRESH_LABEL = {
   upcoming: ['ยังไม่วางขาย', 'pvp'],
   fresh: ['ออกไม่เกิน 1 ปี', 'single'],
@@ -248,7 +303,8 @@ function card(d) {
   const price = d.status === 'upcoming' && d.price_final == null
     ? 'ยังไม่ประกาศราคา' : (d.is_free ? 'ฟรี' : baht(d.price_final));
 
-  return '<article class="card' + (d.opportunity_score > 0 ? '' : ' dim') + '">' +
+  return '<a class="card' + (d.opportunity_score > 0 ? '' : ' dim') + '" ' +
+    'href="' + steamUrl(d.appid) + '" target="_blank" rel="noopener">' +
     '<div class="thumb">' +
     (d.header_image ? '<img loading="lazy" src="' + esc(d.header_image) + '" alt="">' : '') +
     (d.played_rank ? '<span class="rankbadge">#' + d.played_rank + '</span>' : '') +
@@ -260,12 +316,13 @@ function card(d) {
     '<div class="metrics"><div class="ccu"><b>' +
     (d.ccu == null ? '—' : nf.format(d.ccu)) +
     '</b><span>คนเล่นตอนนี้</span></div>' + stock + spark(d.history) + '</div>' +
-    '<div class="surge"><span class="score ' + scoreClass(d.opportunity_score) + '">' +
-    d.opportunity_score.toFixed(1) + '</span><span>น่าซื้อ</span>' +
+    '<div class="surge"><span class="score ' + scoreClass(d.opportunity_score) +
+    '" title="' + esc(breakdown(d)) + '">' + d.opportunity_score.toFixed(1) +
+    '</span><span title="' + esc(breakdown(d)) + '">น่าซื้อ</span>' +
     '<span class="basis" title="คะแนนกระแสดิบ ฐาน: ' + esc(b[0]) + ' — ' + esc(b[1]) + '">' +
     'กระแส ' + d.surge_score.toFixed(1) + '</span></div>' +
     (notes ? '<div class="notes">' + notes + '</div>' : '') +
-    '</div></article>';
+    '</div></a>';
 }
 
 function apply() {
@@ -280,7 +337,9 @@ function apply() {
 
   const rows = DATA.filter(d => {
     if (q && !d.name.toLowerCase().includes(q)) return false;
-    if (onlyOpp && !(d.opportunity_score > 0)) return false;
+    // มุมมองอันดับคือการเรียงตามคนเล่นล้วน ๆ ไม่เอาการตัดสินเรื่องคะแนนมากรอง
+    // (ไม่งั้นเกมที่คนเล่นเยอะแต่ระบบให้ 0 จะหายไปจากอันดับทั้งที่มันอยู่อันดับต้น ๆ จริง)
+    if (view !== 'rank' && onlyOpp && !(d.opportunity_score > 0)) return false;
     if (onlyFree && d.stocked_total > 0) return false;
     if (fresh === 'evergreen') { if (!d.is_evergreen) return false; }
     else if (fresh !== 'all' && (d.freshness !== fresh || d.is_evergreen)) return false;
@@ -304,12 +363,126 @@ function apply() {
   }[sort];
   rows.sort((a, b) => key(a) - key(b) || b.opportunity_score - a.opportunity_score);
 
-  document.getElementById('grid').innerHTML = rows.map(card).join('');
+  const grid = document.getElementById('grid');
+  const rank = document.getElementById('ranktable');
+  if (view === 'rank') {
+    grid.hidden = true; grid.innerHTML = '';
+    rank.hidden = false;
+    rank.innerHTML = rankTable(rows);
+  } else {
+    rank.hidden = true; rank.innerHTML = '';
+    grid.hidden = false;
+    grid.innerHTML = rows.map(card).join('');
+  }
   document.getElementById('empty').hidden = rows.length > 0;
 }
 
+// ---------- มุมมองอันดับผู้เล่น ----------
+function rankTable(rows) {
+  const live = rows.filter(d => d.ccu != null).sort((a, b) => b.ccu - a.ccu);
+  if (!live.length) return '<div class="empty">ไม่มีเกมที่วัดผู้เล่นได้</div>';
+  const body = live.map((d, i) => {
+    let stock;
+    if (d.stocked_mine > 0) stock = 'คุณ ' + d.stocked_mine + '/' + d.stocked_total;
+    else if (d.stocked_total === 0) stock = '—';
+    else stock = d.stocked_total + ' ใบ';
+    return '<tr><td class="pos">' + (i + 1) + '</td>' +
+      '<td>' + (d.header_image
+        ? '<a href="' + steamUrl(d.appid) + '" target="_blank" rel="noopener">' +
+          '<img class="rthumb" loading="lazy" src="' + esc(d.header_image) + '" alt=""></a>'
+        : '') + '</td>' +
+      '<td><a href="' + steamUrl(d.appid) + '" target="_blank" rel="noopener">' +
+        esc(d.name) + '</a></td>' +
+      '<td class="num">' + nf.format(d.ccu) + '</td>' +
+      '<td class="num">' + (d.is_free ? 'ฟรี' : baht(d.price_final)) + '</td>' +
+      '<td>' + (d.is_coop ? 'Co-op' : d.is_multi ? 'Multi' : 'Single') + '</td>' +
+      '<td class="num">' + stock + '</td>' +
+      '<td class="num" title="' + esc(breakdown(d)) + '">' +
+        d.opportunity_score.toFixed(1) + '</td></tr>';
+  }).join('');
+  return '<div class="panel" style="padding:4px 6px"><table class="rank">' +
+    '<thead><tr><th>#</th><th></th><th>เกม</th><th class="num">คนเล่นตอนนี้</th>' +
+    '<th class="num">ราคา</th><th>โหมด</th><th class="num">สต็อกตลาด</th>' +
+    '<th class="num">น่าซื้อ</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+}
+
+// ---------- กราฟเส้น: ดัชนีผู้เล่น ฐาน 100 ----------
+// ใช้ดัชนีแทนค่าดิบ เพราะเกมใหญ่กับเกมเล็กต่างกันหลักแสน ถ้าพล็อตค่าดิบ
+// เส้นของเกมเล็กจะแบนติดพื้นจนมองไม่เห็นว่ามันกำลังพุ่ง
+const LINE_COLORS = ['#e11d48','#2563eb','#059669','#d97706','#7c3aed',
+                     '#0891b2','#be185d','#4d7c0f'];
+
+function drawChart() {
+  const pool = DATA.filter(d => d.series && d.series.length >= 2);
+  const stamps = [...new Set(pool.flatMap(d => d.series.map(p => p[0])))].sort();
+  const hint = document.getElementById('charthint');
+
+  if (stamps.length < 2) {
+    document.getElementById('chartpanel').hidden = true;
+    return;
+  }
+  const picked = pool
+    .filter(d => d.opportunity_score > 0 || d.stocked_total > 0)
+    .sort((a, b) => b.ccu - a.ccu).slice(0, 8);
+  if (!picked.length) { document.getElementById('chartpanel').hidden = true; return; }
+
+  hint.textContent = 'ดัชนีผู้เล่น เทียบจุดแรกที่เก็บได้ = 100 · ' + stamps.length +
+    ' จุดข้อมูล · เส้นที่พุ่งขึ้นคือเกมที่คนเล่นโตเร็วกว่าตัวมันเองเมื่อวาน';
+
+  const W = 900, H = 260, L = 46, R = 14, T = 14, B = 26;
+  const xs = t => L + (stamps.indexOf(t) / (stamps.length - 1)) * (W - L - R);
+  const series = picked.map(d => {
+    const first = d.series[0][1] || 1;
+    return { name: d.name, appid: d.appid,
+             pts: d.series.map(([t, c]) => [t, (c / first) * 100]) };
+  });
+  const vals = series.flatMap(s => s.pts.map(p => p[1])).concat([100]);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.12 || 10;
+  const y0 = lo - pad, y1 = hi + pad;
+  const ys = v => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
+
+  let svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H +
+    '" role="img" aria-label="ดัชนีผู้เล่นตามเวลา">';
+  [y0, (y0 + y1) / 2, y1].forEach(v => {
+    svg += '<line x1="' + L + '" y1="' + ys(v).toFixed(1) + '" x2="' + (W - R) +
+      '" y2="' + ys(v).toFixed(1) + '" stroke="currentColor" stroke-width="0.5" opacity="0.15"/>' +
+      '<text x="6" y="' + (ys(v) + 4).toFixed(1) + '" font-size="11" fill="currentColor" opacity="0.5">' +
+      v.toFixed(0) + '</text>';
+  });
+  svg += '<line x1="' + L + '" y1="' + ys(100).toFixed(1) + '" x2="' + (W - R) +
+    '" y2="' + ys(100).toFixed(1) + '" stroke="currentColor" stroke-width="1" ' +
+    'stroke-dasharray="3 3" opacity="0.35"/>';
+  series.forEach((s, i) => {
+    const pts = s.pts.map(([t, v]) => xs(t).toFixed(1) + ',' + ys(v).toFixed(1)).join(' ');
+    svg += '<polyline points="' + pts + '" fill="none" stroke="' +
+      LINE_COLORS[i % LINE_COLORS.length] + '" stroke-width="1.8" ' +
+      'stroke-linejoin="round" stroke-linecap="round"/>';
+  });
+  svg += '</svg>';
+  document.getElementById('chart').innerHTML = svg;
+  document.getElementById('legend').innerHTML = series.map((s, i) => {
+    const last = s.pts[s.pts.length - 1][1];
+    return '<span><i style="background:' + LINE_COLORS[i % LINE_COLORS.length] + '"></i>' +
+      '<a href="' + steamUrl(s.appid) + '" target="_blank" rel="noopener" ' +
+      'style="color:inherit;text-decoration:none">' + esc(s.name) + '</a> ' +
+      last.toFixed(0) + '</span>';
+  }).join('');
+}
+
+let view = 'cards';
+function setView(v) {
+  view = v;
+  document.getElementById('vCards').setAttribute('aria-pressed', String(v === 'cards'));
+  document.getElementById('vRank').setAttribute('aria-pressed', String(v === 'rank'));
+  apply();
+}
+document.getElementById('vCards').addEventListener('click', () => setView('cards'));
+document.getElementById('vRank').addEventListener('click', () => setView('rank'));
+
 ['q', 'fOpp', 'fUnstocked', 'fFresh', 'fMode', 'fGenre', 'fPrice', 'fSort'].forEach(id =>
   document.getElementById(id).addEventListener('input', apply));
+drawChart();
 apply();
 </script>
 """
@@ -331,6 +504,12 @@ def build(conn: sqlite3.Connection, out_path: Path) -> dict[str, int]:
         d = asdict(a)
         d["is_free"] = bool(row["is_free"])
         d["history"] = a.history[-20:]
+        # จุดข้อมูลพร้อมเวลา สำหรับกราฟเส้น — เก็บเฉพาะเกมที่มี CCU จริง
+        d["series"] = (
+            [[t, c] for t, c in db.ccu_series(conn, a.appid, limit=40)]
+            if a.ccu is not None
+            else []
+        )
         payload.append(d)
 
     scanned_at = rows[0]["taken_at"] if rows else db.utcnow()

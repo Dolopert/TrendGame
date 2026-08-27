@@ -341,3 +341,20 @@ def market_names(conn: sqlite3.Connection) -> dict[int, str]:
         """
     )
     return {r["appid"]: r["game_name"] for r in cur.fetchall()}
+
+
+def ccu_series(conn: sqlite3.Connection, appid: int, limit: int = 60) -> list[tuple[str, int]]:
+    """CCU ทุกจุดที่เก็บได้ ไม่ยุบรายวัน — สำหรับวาดกราฟเส้น
+
+    ต่างจาก ccu_history ที่ยุบเป็นวันละจุดเพื่อคำนวณอัตราโต ตรงนี้ต้องการ
+    ความละเอียดตามที่เก็บจริง ยิ่งรัน scan ถี่ กราฟยิ่งละเอียด
+    """
+    cur = conn.execute(
+        """
+        SELECT taken_at, ccu FROM snapshot
+        WHERE appid = ? AND ccu IS NOT NULL
+        ORDER BY taken_at DESC LIMIT ?
+        """,
+        (appid, limit),
+    )
+    return [(r["taken_at"], r["ccu"]) for r in reversed(cur.fetchall())]
