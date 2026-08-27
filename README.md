@@ -2,7 +2,7 @@
 
 จับเกม Steam ที่กำลังพุ่ง แล้วคัดเฉพาะตัวที่เอาไปปล่อยเช่าไอดีได้ ออกมาเป็นหน้า dashboard
 
-**หน้า dashboard สด:** https://dolopert.github.io/TrendGame/
+**หน้า dashboard สด:** https://dolopert.github.io/TrendGame/docs/index.html
 
 คำศัพท์ที่ใช้ทั้งโปรเจกต์อยู่ที่ [CONTEXT.md](./CONTEXT.md) — อ่านก่อนแก้โค้ด
 
@@ -35,8 +35,9 @@ uv run --project game-radar game-radar top -n 15
 
 ### อัปเดตหน้าเว็บที่ deploy ไว้
 
-หน้าที่ https://dolopert.github.io/TrendGame/ มาจาก `docs/index.html` ซึ่ง commit ไว้ในรีโป
-(GitHub Pages ชี้มาที่โฟลเดอร์ `docs/` ของ branch `main`) อัปเดตด้วยการสร้างทับแล้วพุช:
+หน้าที่ https://dolopert.github.io/TrendGame/docs/index.html มาจาก `docs/index.html` ซึ่ง commit ไว้ในรีโป
+GitHub Pages ตั้ง source เป็น branch `main` โฟลเดอร์ `/ (root)` ทั้งรีโปจึงถูก publish
+หน้า dashboard เลยอยู่ที่ path `/docs/index.html` ไม่ใช่ที่รากของเว็บ อัปเดตด้วยการสร้างทับแล้วพุช:
 
 ```bash
 uv run --project game-radar game-radar scan
