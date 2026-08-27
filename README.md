@@ -36,16 +36,34 @@ uv run --project game-radar game-radar run
 คืนช่วงเวลาที่แต่ละไอดีถูกจอง (`busy`) กับเรทค่าเช่าจริง (`rates`)
 นั่นคือ **ยอดจองจริง** ไม่ใช่แค่จำนวนไอดีที่สต็อกไว้
 
-ระหว่างรอคีย์ workflow จะข้ามขั้นนี้เองแล้วเก็บฝั่ง Steam ต่อ (`--allow-fail`)
-ถ้าอยากอัปเดตข้อมูลตลาดด้วยมือจากเครื่องที่บ้าน ต้องทำตามลำดับนี้เท่านั้น
-ไม่งั้นข้อมูลที่ cloud เก็บไว้จะถูกทับหาย:
+API ทางการที่ [`/docs/api`](https://store.499k-network.com/docs/api) **ใช้ไม่ได้กับกรณีนี้**
+มันเป็น API ของผู้ซื้อ/รีเซลเลอร์ที่เอาสินค้าของ 499k ไปขายต่อบนเว็บตัวเอง (สั่งซื้อแล้วตัดเงิน
+จากยอดในบัญชี) ไม่ใช่ API สำหรับร้านที่ตั้งอยู่บนแพลตฟอร์มอยู่แล้ว
 
-```bash
-git pull && uv run --project game-radar game-radar restore --force && uv run --project game-radar game-radar market && uv run --project game-radar game-radar dump
+**จึงแบ่งหน้าที่แทน** — cloud เก็บ Steam / เครื่องที่บ้านเก็บตลาดแล้ว push ขึ้นรีโป
+ตั้งอัตโนมัติด้วย [`update_market.ps1`](./update_market.ps1) ผ่าน Task Scheduler ทุกวัน 21:00
+(ห่างจาก workflow บน cloud ครึ่งวัน กันเขียนไฟล์เดียวกันชนกัน)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File game-radar/setup_scheduler.ps1
 ```
 
-แล้วค่อย commit `data/radar.sql` — ขั้น `restore --force` สำคัญ เพราะต้องเอาข้อมูล
-ที่ cloud เก็บไว้มาเป็นฐานก่อน ไม่ใช่เขียนทับด้วยฐานข้อมูลเก่าในเครื่อง
+สคริปต์ทำตามลำดับนี้ และ **ห้ามสลับ**:
+
+```
+pull -> restore --force -> market -> dump -> commit -> push
+```
+
+ขั้น `restore --force` คือหัวใจ เพราะต้องเอาข้อมูลที่ cloud เก็บไว้มาเป็นฐานก่อน
+ถ้าข้ามไป ตอน dump จะเขียนทับด้วยฐานข้อมูลเก่าในเครื่อง แล้วข้อมูลของ cloud หายทันที
+
+### กับดักของไฟล์ .ps1 บนเครื่องนี้
+
+เจอมาแล้วทั้งสองแบบ เสียเวลาไปหลายรอบ:
+
+- **ต้องเป็น UTF-8 พร้อม BOM** ไม่งั้น PowerShell 5.1 อ่านภาษาไทยเป็น cp874 แล้ว parser พัง
+- **อย่าใช้ backtick ขึ้นบรรทัดใหม่** ถ้าไฟล์เป็น CRLF การต่อบรรทัดจะพังเงียบ ๆ
+  (backtick ไปหนี CR แทนที่จะหนีการขึ้นบรรทัด) ใช้ splatting `@{...}` แทน
 
 ### ฐานข้อมูลเก็บยังไง
 
