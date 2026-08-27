@@ -213,15 +213,15 @@ def _opportunity(a: dict) -> float:
     if base <= 0:
         return 0.0
 
-    # ยิ่งคู่แข่งสต็อกเยอะ ยิ่งเข้าไปช้า — 0 ใบได้เต็ม, 50 ใบเหลือแทบไม่มี
-    stocked = a["stocked_total"] - a["stocked_mine"]
-    room = 1.0 / (1.0 + stocked / 8)
-
     fresh_boost = {"upcoming": 1.6, "fresh": 1.35, "recent": 1.0}[a["freshness"]]
     coop_boost = 1.25 if a["is_coop"] else 1.0
 
+    # หมายเหตุ: เคยคูณด้วยช่องว่างที่เหลือในตลาด (ยิ่งคู่แข่งสต็อกเยอะ คะแนนยิ่งต่ำ)
+    # เอาออกตามที่เจ้าของร้านสั่ง — คะแนนนี้จึงวัด "เกมนี้น่าเอามาปล่อยเช่าแค่ไหน"
+    # ล้วน ๆ ไม่ได้ตัดสินใจแทนว่าควรเลี่ยงสนามที่มีคนอยู่แล้วหรือไม่
+    # ตัวเลขสต็อกยังเก็บและแสดงอยู่ครบ ใช้เรียงลำดับหรือกรองเองได้บน dashboard
     return round(
-        base * room * fresh_boost * coop_boost * price_fit(a["price_final"]), 2
+        base * fresh_boost * coop_boost * price_fit(a["price_final"]), 2
     )
 
 
