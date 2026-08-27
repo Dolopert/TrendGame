@@ -26,9 +26,41 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from statistics import median
 
-# ช่วงราคาที่เช่าคุ้ม — ยืนยันกับตลาดจริงแล้ว 75% ของแค็ตตาล็อกอยู่ในช่วงนี้ (ค่ากลาง ฿342)
-PRICE_SWEET_MIN = 10_000   # ฿100
-PRICE_SWEET_MAX = 60_000   # ฿600
+# ช่วงราคา (หน่วยสตางค์) — ตัวเลขทั้งหมดมาจากแค็ตตาล็อกร้านเช่าจริง ไม่ได้ตั้งเอา
+#   87% ของไอดีที่ตลาดสต็อกอยู่ในช่วง ฿100-600 จึงเป็นแกนกลาง
+#   แต่ ฿99 (How to Fish) มี 15 ใบ = อันดับ 5 ของตลาด และ ฿856 (Subnautica 2) มี 11 ใบ
+#   สองตัวนี้พิสูจน์ว่านอกช่วงยังขายได้ ต้องลาดลง ไม่ใช่ตัดหน้าผา
+#   ของที่ไม่มีดีมานด์จริงคือ ฿23 และ ฿57 (2 กับ 1 ใบ) ซึ่งต่ำกว่ามาก
+PRICE_CORE_MIN = 12_000    # ฿120
+PRICE_CORE_MAX = 50_000    # ฿500
+PRICE_FLOOR = 3_000        # ฿30 — ต่ำกว่านี้คนซื้อขาดเองถูกกว่าเช่า
+PRICE_CEIL = 110_000       # ฿1,100 — สูงกว่านี้ร้านจมทุนนานเกิน
+MIN_PRICE_FIT = 0.55
+
+# ชื่อเดิมที่โค้ดอื่นยังอ้างถึง (ตัวกรองบน dashboard ใช้ช่วงนี้แสดงผล)
+PRICE_SWEET_MIN = 10_000
+PRICE_SWEET_MAX = 60_000
+
+
+def price_fit(price: int | None) -> float:
+    """ความเหมาะของราคาต่อการปล่อยเช่า — ลาดลงนอกแกนกลาง ไม่ใช่ตัดทันที
+
+    เวอร์ชันแรกใช้ if ราคา < ฿100 แล้วหัก 40% ทันที ซึ่งทำให้ How to Fish
+    ที่ ฿98.58 โดนหักเต็ม ๆ เพราะถูกกว่าเส้นอยู่ 1.42 บาท ทั้งที่มันคือ
+    เกมที่ตลาดสต็อกมากเป็นอันดับ 5 — เส้นแบบนั้นวัดอะไรไม่ได้เลย
+    """
+    if price is None:
+        return 1.0
+    if PRICE_CORE_MIN <= price <= PRICE_CORE_MAX:
+        return 1.0
+    if price < PRICE_CORE_MIN:
+        span = PRICE_CORE_MIN - PRICE_FLOOR
+        t = (price - PRICE_FLOOR) / span if span else 1.0
+    else:
+        span = PRICE_CEIL - PRICE_CORE_MAX
+        t = (PRICE_CEIL - price) / span if span else 0.0
+    t = max(0.0, min(1.0, t))
+    return round(MIN_PRICE_FIT + t * (1.0 - MIN_PRICE_FIT), 3)
 
 MIN_DAYS_FOR_HISTORY = 3
 CHART_SIZE = 100
@@ -188,13 +220,9 @@ def _opportunity(a: dict) -> float:
     fresh_boost = {"upcoming": 1.6, "fresh": 1.35, "recent": 1.0}[a["freshness"]]
     coop_boost = 1.25 if a["is_coop"] else 1.0
 
-    price = a["price_final"]
-    price_fit = 1.0
-    if price is not None:
-        if price < PRICE_SWEET_MIN or price > PRICE_SWEET_MAX:
-            price_fit = 0.6
-
-    return round(base * room * fresh_boost * coop_boost * price_fit, 2)
+    return round(
+        base * room * fresh_boost * coop_boost * price_fit(a["price_final"]), 2
+    )
 
 
 def assess(
