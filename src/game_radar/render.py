@@ -59,9 +59,31 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
   padding:14px 16px;margin-bottom:22px;display:flex;flex-wrap:wrap;gap:16px;
   align-items:center}
 .bar label{font-size:.82rem;display:flex;align-items:center;gap:6px;cursor:pointer}
-.bar select,.bar input[type=search]{background:var(--bg);color:var(--fg);
-  border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:.82rem;
-  font-family:inherit}
+.bar input[type=search]{background:var(--bg);color:var(--fg);
+  border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:.82rem;
+  font-family:inherit;outline:none;transition:border-color .12s}
+.bar input[type=search]:hover{border-color:var(--border-strong,var(--muted))}
+.bar input[type=search]:focus{border-color:var(--accent)}
+.bar input[type=search]::placeholder{color:var(--muted)}
+.bar select{
+  -webkit-appearance:none;-moz-appearance:none;appearance:none;
+  background-color:var(--bg);color:var(--fg);
+  border:1px solid var(--line);border-radius:7px;
+  padding:7px 30px 7px 10px;font-size:.82rem;font-family:inherit;
+  cursor:pointer;outline:none;transition:border-color .12s;
+  background-image:
+    linear-gradient(45deg,transparent 50%,currentColor 50%),
+    linear-gradient(135deg,currentColor 50%,transparent 50%);
+  background-position:calc(100% - 15px) calc(50% + 1px),calc(100% - 10px) calc(50% + 1px);
+  background-size:5px 5px,5px 5px;
+  background-repeat:no-repeat}
+.bar select:hover{border-color:var(--muted)}
+.bar select:focus{border-color:var(--accent)}
+/* ตัวเลือกในลิสต์ที่กางออกมาถูกวาดโดยระบบปฏิบัติการ จัดสไตล์ได้จำกัดมาก
+   กำหนดสีพื้นกับสีตัวอักษรไว้ เพื่อไม่ให้กลายเป็นกล่องขาวโพลนตอนธีมมืด */
+.bar select option{background:var(--panel);color:var(--fg)}
+.bar input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;
+  cursor:pointer;margin:0}
 .grid{display:grid;gap:14px;
   grid-template-columns:repeat(auto-fill,minmax(310px,1fr))}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
@@ -104,7 +126,7 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
   padding:16px;margin-bottom:22px}
 .panel h2{font-size:.95rem;margin:0 0 2px;font-weight:600}
 .panel p{margin:0 0 12px;color:var(--muted);font-size:.78rem}
-.chartwrap{overflow-x:auto}
+.chartwrap{width:100%}
 .legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:.75rem}
 .legend span{display:flex;align-items:center;gap:5px;color:var(--muted)}
 .legend i{width:11px;height:3px;border-radius:2px;display:inline-block}
@@ -248,6 +270,31 @@ function spark(hist) {
 function scoreClass(s) { return s >= 6 ? 's-hot' : s >= 3.5 ? 's-warm' : 's-mild'; }
 
 const NL = String.fromCharCode(10);
+
+function fmtStamp(iso) {
+  const d = new Date(iso);
+  const p = n => String(n).padStart(2, '0');
+  return [p(d.getDate()) + '/' + p(d.getMonth() + 1),
+          p(d.getHours()) + ':' + p(d.getMinutes())];
+}
+
+// ป้ายอายุเกมแบบละเอียดรายวัน ใช้แทนถังหยาบ ๆ เดิม
+function ageLabel(d) {
+  if (d.is_evergreen) return ['ขายได้ตลอด', 'multi'];
+  if (d.days_until_release != null) {
+    const n = d.days_until_release;
+    if (n <= 0) return ['กำลังจะขาย', 'pvp'];
+    if (n < 60) return ['อีก ' + n + ' วันขาย', 'pvp'];
+    return ['อีก ~' + Math.round(n / 30) + ' เดือนขาย', 'pvp'];
+  }
+  if (d.freshness === 'upcoming') return ['ยังไม่ประกาศวันขาย', 'pvp'];
+  const a = d.age_days;
+  if (a == null) return ['ไม่รู้วันวางขาย', ''];
+  if (a === 0) return ['ออกวันนี้', 'single'];
+  if (a < 60) return ['ออกมา ' + a + ' วัน', 'single'];
+  if (a < 730) return ['ออกมา ' + Math.round(a / 30) + ' เดือน', a < 365 ? 'single' : ''];
+  return ['ออกมา ' + Math.floor(a / 365) + ' ปี', ''];
+}
 const steamUrl = id => 'https://store.steampowered.com/app/' + id + '/';
 
 function breakdown(d) {
@@ -275,9 +322,7 @@ const FRESH_LABEL = {
 
 function card(d) {
   const modes = [];
-  const fl = d.is_evergreen
-    ? ['ขายได้ตลอด', 'multi']
-    : (FRESH_LABEL[d.freshness] || ['', '']);
+  const fl = ageLabel(d);
   if (fl[0]) modes.push('<span class="chip ' + fl[1] + '">' + fl[0] + '</span>');
   if (d.is_coop) modes.push('<span class="chip multi">Co-op</span>');
   else if (d.is_multi) modes.push('<span class="chip multi">Multi-player</span>');
@@ -429,7 +474,7 @@ function drawChart() {
   hint.textContent = 'ดัชนีผู้เล่น เทียบจุดแรกที่เก็บได้ = 100 · ' + stamps.length +
     ' จุดข้อมูล · เส้นที่พุ่งขึ้นคือเกมที่คนเล่นโตเร็วกว่าตัวมันเองเมื่อวาน';
 
-  const W = 900, H = 260, L = 46, R = 14, T = 14, B = 26;
+  const W = 900, H = 280, L = 46, R = 14, T = 14, B = 44;
   const xs = t => L + (stamps.indexOf(t) / (stamps.length - 1)) * (W - L - R);
   const series = picked.map(d => {
     const first = d.series[0][1] || 1;
@@ -442,8 +487,11 @@ function drawChart() {
   const y0 = lo - pad, y1 = hi + pad;
   const ys = v => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
 
-  let svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H +
-    '" role="img" aria-label="ดัชนีผู้เล่นตามเวลา">';
+  // width 100% + viewBox ให้กราฟย่อขยายตามกล่อง ไม่ต้องมีแถบเลื่อนแนวนอน
+  // และป้ายแกนขวาสุดไม่โดนตัด
+  let svg = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H +
+    '" preserveAspectRatio="xMidYMid meet" style="display:block" ' +
+    'role="img" aria-label="ดัชนีผู้เล่นตามเวลา">';
   [y0, (y0 + y1) / 2, y1].forEach(v => {
     svg += '<line x1="' + L + '" y1="' + ys(v).toFixed(1) + '" x2="' + (W - R) +
       '" y2="' + ys(v).toFixed(1) + '" stroke="currentColor" stroke-width="0.5" opacity="0.15"/>' +
@@ -453,6 +501,24 @@ function drawChart() {
   svg += '<line x1="' + L + '" y1="' + ys(100).toFixed(1) + '" x2="' + (W - R) +
     '" y2="' + ys(100).toFixed(1) + '" stroke="currentColor" stroke-width="1" ' +
     'stroke-dasharray="3 3" opacity="0.35"/>';
+
+  // แกนเวลา: ขีดที่ทุกจุดที่เก็บจริง แต่ติดป้ายแค่บางจุดไม่ให้ตัวหนังสือชนกัน
+  const every = Math.max(1, Math.ceil(stamps.length / 6));
+  stamps.forEach((t, i) => {
+    const x = xs(t);
+    svg += '<line x1="' + x.toFixed(1) + '" y1="' + T + '" x2="' + x.toFixed(1) +
+      '" y2="' + (H - B) + '" stroke="currentColor" stroke-width="0.5" opacity="0.08"/>';
+    svg += '<line x1="' + x.toFixed(1) + '" y1="' + (H - B) + '" x2="' + x.toFixed(1) +
+      '" y2="' + (H - B + 4) + '" stroke="currentColor" stroke-width="0.5" opacity="0.35"/>';
+    if (i % every && i !== stamps.length - 1) return;
+    const [d1, d2] = fmtStamp(t);
+    svg += '<text x="' + x.toFixed(1) + '" y="' + (H - B + 17) +
+      '" font-size="11" fill="currentColor" opacity="0.65" text-anchor="middle">' +
+      d1 + '</text>';
+    svg += '<text x="' + x.toFixed(1) + '" y="' + (H - B + 30) +
+      '" font-size="10" fill="currentColor" opacity="0.4" text-anchor="middle">' +
+      d2 + '</text>';
+  });
   series.forEach((s, i) => {
     const pts = s.pts.map(([t, v]) => xs(t).toFixed(1) + ',' + ys(v).toFixed(1)).join(' ');
     svg += '<polyline points="' + pts + '" fill="none" stroke="' +

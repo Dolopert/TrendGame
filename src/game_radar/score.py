@@ -127,6 +127,7 @@ class Assessment:
     discount_percent: int | None
     release_date: str | None
     age_days: int | None
+    days_until_release: int | None
     freshness: str
     is_evergreen: bool
     is_single: bool
@@ -187,6 +188,42 @@ def _surge_from_rank(
     return None, (1.0 + delta / 25) * size, "weekly_rank"
 
 
+def freshness_boost(age_days: int | None, days_until: int | None,
+                    is_evergreen: bool) -> tuple[float, str]:
+    """ตัวคูณความสด คิดเป็นรายวัน ไม่ใช่เป็นถัง
+
+    ของเดิมใช้สามถัง (ยังไม่ขาย 1.6 · ไม่เกิน 1 ปี 1.35 · 1-2 ปี 1.0) ซึ่งหยาบเกินไป
+    เกมที่ออกเมื่อวานกับเกมที่ออกมา 11 เดือนได้คะแนนเท่ากัน ทั้งที่หน้าต่างทำเงิน
+    ของสองตัวต่างกันคนละเรื่อง และตรงรอยต่อถังยังกระโดดเป็นหน้าผาแบบเดียวกับปัญหาราคา
+
+    เกมที่ยังไม่วางขาย: ยิ่งใกล้วันขายยิ่งมีค่า เพราะเตรียมไอดีรับวันเปิดตัวได้ทัน
+    ส่วนตัวที่ประกาศไว้อีกปีนึง รู้ไปตอนนี้ก็ยังทำอะไรไม่ได้
+    """
+    if is_evergreen:
+        return 1.0, "ขายได้ตลอด"
+    if days_until is not None:
+        b = 1.35 + 0.45 * math.exp(-max(days_until, 0) / 60)
+        if days_until <= 0:
+            when = "กำลังจะขาย"
+        elif days_until < 60:
+            when = f"อีก {days_until} วันขาย"
+        else:
+            when = f"อีก ~{days_until // 30} เดือนขาย"
+        return round(b, 3), when
+    if age_days is None:
+        return 1.0, "ไม่รู้วันวางขาย"
+    b = 1.0 + 0.55 * math.exp(-age_days / 240)
+    if age_days == 0:
+        when = "ออกวันนี้"
+    elif age_days < 60:
+        when = f"ออกมา {age_days} วัน"
+    elif age_days < 730:
+        when = f"ออกมา {age_days // 30} เดือน"
+    else:
+        when = f"ออกมา {age_days // 365} ปี"
+    return round(b, 3), when
+
+
 def _freshness(age: int | None, coming_soon: bool) -> str:
     if coming_soon:
         return "upcoming"
@@ -242,12 +279,9 @@ def _opportunity(a: dict) -> tuple[float, dict]:
         parts["reason"] = "ไม่มีสัญญาณอะไรเลย ไม่ติดชาร์ต ตลาดก็ไม่สต็อก"
         return 0.0, parts
 
-    fresh_boost = (
-        1.0 if a["is_evergreen"]
-        else {"upcoming": 1.6, "fresh": 1.35, "recent": 1.0}[a["freshness"]]
+    fresh_boost, fresh_label = freshness_boost(
+        a["age_days"], a["days_until_release"], a["is_evergreen"]
     )
-    fresh_label = {"upcoming": "ยังไม่วางขาย", "fresh": "ออกไม่เกิน 1 ปี",
-                   "recent": "ออกมา 1-2 ปี"}.get(a["freshness"], "ขายได้ตลอด")
     coop_boost = 1.25 if a["is_coop"] else 1.0
     pf = price_fit(a["price_final"])
     price_label = ("ไม่มีราคา" if a["price_final"] is None
@@ -286,7 +320,12 @@ def assess(
         growth, score, basis = _surge_from_rank(ccu, rank, last_week)
 
     rel = parse_release(row["release_date"])
-    age = (date.today() - rel).days if rel else None
+    today = date.today()
+    age = (today - rel).days if rel else None
+    # เกมที่ยังไม่วางขายและรู้วันขาย: นับถอยหลังเป็นวัน แทนที่จะรู้แค่ว่า "ยังไม่ขาย"
+    days_until = max((rel - today).days, 0) if (rel and row["coming_soon"]) else None
+    if row["coming_soon"]:
+        age = None
     coming = bool(row["coming_soon"])
     fresh = _freshness(age, coming)
 
@@ -339,6 +378,8 @@ def assess(
         "is_multi": bool(row["is_multi"]),
         "freshness": fresh,
         "is_evergreen": is_evergreen,
+        "age_days": age,
+        "days_until_release": days_until,
         "surge_score": round(score, 2),
         "stocked_total": n_all,
         "stocked_mine": n_mine,
@@ -361,6 +402,7 @@ def assess(
         discount_percent=row["discount_percent"],
         release_date=row["release_date"],
         age_days=age,
+        days_until_release=days_until,
         freshness=fresh,
         is_evergreen=is_evergreen,
         is_single=bool(row["is_single"]),
