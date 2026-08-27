@@ -1,0 +1,61 @@
+name: เก็บข้อมูลรายวัน
+
+# รันบน GitHub ไม่ใช่บนเครื่องที่บ้าน เพื่อให้ข้อมูลไม่ขาดวันแม้ปิดเครื่อง
+# และเพื่อให้ประวัติที่สะสมมามีสำรองอยู่ใน repo ไม่ได้อยู่ในดิสก์เดียว
+#
+# ฐานข้อมูลเก็บใน git เป็น data/radar.sql (ข้อความ) ไม่ใช่ .sqlite3 (ไบนารี)
+# เพราะไฟล์ไบนารีจะถูก git เก็บสำเนาเต็มทุก commit ปีเดียวก็หลายร้อย MB
+
+on:
+  schedule:
+    # 02:00 UTC = 09:00 เวลาไทย
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: ติดตั้ง uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: กู้ฐานข้อมูลจากไฟล์ข้อความในรีโป
+        run: uv run game-radar restore
+
+      - name: เก็บสต็อกตลาดเช่า
+        run: uv run game-radar market
+
+      - name: เก็บข้อมูล Steam
+        run: uv run game-radar scan --metadata-limit 400
+
+      - name: สร้างหน้า dashboard
+        run: uv run game-radar dash --out docs/index.html
+
+      - name: เขียนฐานข้อมูลกลับเป็นไฟล์ข้อความ
+        run: uv run game-radar dump
+
+      - name: commit ผลลัพธ์
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/radar.sql docs/index.html
+          if git diff --cached --quiet; then
+            echo "ไม่มีอะไรเปลี่ยน ข้ามการ commit"
+            exit 0
+          fi
+          git commit -m "ข้อมูลรายวัน $(date -u '+%Y-%m-%d %H:%M UTC')"
+          # เผื่อมีคน push แทรกระหว่างที่ job กำลังรัน
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main

@@ -17,22 +17,34 @@
 uv run --project game-radar game-radar run
 ```
 
-**เก็บสต็อกของตลาดเช่า — ตั้งให้รันเองทุกวันแล้ว:**
+## รันเองอัตโนมัติบน GitHub แล้ว
+
+**ไม่ต้องสั่งอะไรรายวัน** — [workflow](.github/workflows/daily.yml) รันทุกวัน 09:00 เวลาไทย
+บนเครื่องของ GitHub ทำครบทั้ง `market` → `scan` → `dash` แล้ว commit ผลกลับเข้ารีโป
+หน้าเว็บจึงอัปเดตเองโดยไม่ต้องเปิดเครื่องที่บ้าน
+
+สั่งรันเดี๋ยวนี้ได้ที่แท็บ Actions → เลือก workflow → Run workflow
+
+### ฐานข้อมูลเก็บยังไง
+
+ประวัติที่สะสมมาคือของชิ้นเดียวที่มีค่าจริงในโปรเจกต์นี้ เพราะเก็บย้อนหลังใหม่ไม่ได้
+จึง commit ไว้ในรีโปเป็น **`data/radar.sql`** (ไฟล์ข้อความ) ไม่ใช่ `.sqlite3` (ไฟล์ไบนารี)
+เพราะ git เก็บไฟล์ไบนารีเป็นสำเนาเต็มทุก commit — ปีเดียวก็บวมหลายร้อย MB
+ส่วนไฟล์ข้อความที่เพิ่มบรรทัดท้าย ๆ git ทำ delta ได้ดีมาก
 
 ```bash
-uv run --project game-radar game-radar market
+uv run --project game-radar game-radar restore   # สร้าง .sqlite3 จาก .sql
 ```
 
-คำสั่งนี้เบามาก ยิงไม่กี่ request แต่ขาดไปวันหนึ่งคือเสียจุดเปรียบเทียบไปหนึ่งจุดถาวร
-มันคือแหล่งเดียวที่จะทำให้แบ็คเทสของจริงเกิดขึ้นได้ในอีกไม่กี่สัปดาห์
-จึงตั้ง Windows Task Scheduler ไว้ให้รันเองทุกวัน 09:00 (task ชื่อ `GameRadar-Market`)
-
-```powershell
-powershell -ExecutionPolicy Bypass -File game-radar/setup_scheduler.ps1
+```bash
+uv run --project game-radar game-radar dump      # เขียน .sql กลับจาก .sqlite3
 ```
 
-เปลี่ยนเวลาด้วย `-Time 21:00` · ถอนออกด้วย `-Remove`
-ตัว task ตั้ง `StartWhenAvailable` ไว้ ถ้าวันไหนเครื่องปิดตอนถึงเวลา มันจะไปรันทันทีที่เปิดเครื่อง
+ดึงรีโปมาเครื่องใหม่แล้วสั่ง `restore` ก็ได้ประวัติครบ (ทดสอบ round-trip แล้วตรงทุกแถว)
+
+**อย่ารันงานเก็บข้อมูลทั้งบนเครื่องและบน GitHub พร้อมกัน** สองที่จะแก้ `data/radar.sql`
+คนละทางแล้ว commit ชนกัน — Task Scheduler ในเครื่องถูกถอนออกไปแล้วด้วยเหตุผลนี้
+(`setup_scheduler.ps1` ยังอยู่ ถ้าวันหนึ่งอยากกลับไปรันในเครื่อง ให้ปิด workflow ก่อน)
 
 ## หน้า dashboard มีอะไร
 

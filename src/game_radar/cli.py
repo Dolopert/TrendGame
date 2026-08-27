@@ -17,6 +17,7 @@ from .score import assess
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = ROOT / "data" / "radar.sqlite3"
 DEFAULT_OUT = ROOT / "out" / "dashboard.html"
+DEFAULT_SQL = ROOT / "data" / "radar.sql"
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
@@ -36,6 +37,30 @@ def cmd_market(args: argparse.Namespace) -> int:
     print(f"\nเก็บสต็อกตลาดมาแล้วทั้งหมด {r['market_scans']} รอบ")
     if r["market_scans"] < 2:
         print("(ต้องมีอย่างน้อย 2 รอบถึงจะเห็นว่าสต็อกขยับไปทางไหน)")
+    return 0
+
+
+def cmd_dump(args: argparse.Namespace) -> int:
+    conn = db.connect(Path(args.db))
+    n = db.dump_sql(conn, Path(args.sql))
+    size = Path(args.sql).stat().st_size
+    print(f"เขียน {args.sql} แล้ว ({n:,} บรรทัด · {size / 1024:.0f} KB)")
+    return 0
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    dbp, sqlp = Path(args.db), Path(args.sql)
+    if dbp.exists() and not args.force:
+        print(f"มี {dbp} อยู่แล้ว ไม่ทับให้ (ใส่ --force ถ้าต้องการทับ)")
+        return 0
+    if dbp.exists():
+        dbp.unlink()
+    if db.restore_sql(sqlp, dbp):
+        conn = db.connect(dbp)
+        print(f"กู้ฐานข้อมูลจาก {sqlp} แล้ว — "
+              f"Steam {db.scan_count(conn)} รอบ · ตลาด {db.market_scan_count(conn)} รอบ")
+    else:
+        print(f"ไม่มี {sqlp} — เริ่มจากฐานข้อมูลเปล่า")
     return 0
 
 
@@ -110,6 +135,15 @@ def main(argv: list[str] | None = None) -> int:
     sp = sub.add_parser("scan", help="เก็บข้อมูลหนึ่งรอบ")
     add_scan_args(sp)
     sp.set_defaults(func=cmd_scan)
+
+    sp = sub.add_parser("dump", help="เขียนฐานข้อมูลออกเป็นไฟล์ .sql (สำหรับเก็บใน git)")
+    sp.add_argument("--sql", default=str(DEFAULT_SQL))
+    sp.set_defaults(func=cmd_dump)
+
+    sp = sub.add_parser("restore", help="สร้างฐานข้อมูลจากไฟล์ .sql")
+    sp.add_argument("--sql", default=str(DEFAULT_SQL))
+    sp.add_argument("--force", action="store_true", help="ทับฐานข้อมูลเดิมถ้ามีอยู่")
+    sp.set_defaults(func=cmd_restore)
 
     sp = sub.add_parser("market", help="เก็บสต็อกของตลาดเช่าหนึ่งรอบ (เบา รันทุกวัน)")
     sp.set_defaults(func=cmd_market)

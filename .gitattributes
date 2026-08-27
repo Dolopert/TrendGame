@@ -1,0 +1,6 @@
+# บังคับ LF กับไฟล์ที่ทั้ง Linux runner และเครื่อง Windows เขียนสลับกัน
+# ไม่งั้นทุก commit จะกลายเป็น diff ทั้งไฟล์เพราะขึ้นบรรทัดคนละแบบ
+*.sql   text eol=lf
+*.html  text eol=lf
+*.yml   text eol=lf
+*.py    text eol=lf

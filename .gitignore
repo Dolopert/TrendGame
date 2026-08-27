@@ -1,4 +1,7 @@
-data/
+# ฐานข้อมูลตัวจริงเป็นไฟล์ไบนารี ไม่เก็บใน git
+# ประวัติเก็บเป็น data/radar.sql แทน แล้วสร้างกลับด้วย `game-radar restore`
+data/*.sqlite3
+data/*.sqlite3-*
 out/
 .venv/
 __pycache__/

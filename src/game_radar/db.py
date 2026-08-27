@@ -358,3 +358,33 @@ def ccu_series(conn: sqlite3.Connection, appid: int, limit: int = 60) -> list[tu
         (appid, limit),
     )
     return [(r["taken_at"], r["ccu"]) for r in reversed(cur.fetchall())]
+
+
+# ---------- นำข้อมูลเข้า/ออกเป็นข้อความ ----------
+# เก็บฐานข้อมูลใน git เป็นไฟล์ .sql ไม่ใช่ไฟล์ .sqlite3
+# เพราะไฟล์ไบนารีจะถูก git เก็บสำเนาเต็มทุก commit (ปีละหลายร้อย MB)
+# ส่วนไฟล์ข้อความที่เพิ่มบรรทัดท้าย ๆ git ทำ delta ได้ดีมาก
+
+def dump_sql(conn: sqlite3.Connection, path: Path) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with path.open("w", encoding="utf-8", newline="\n") as f:
+        for line in conn.iterdump():
+            f.write(line + "\n")
+            n += 1
+    return n
+
+
+def restore_sql(path: Path, db_path: Path) -> bool:
+    """สร้างฐานข้อมูลจากไฟล์ .sql — ใช้ตอนรันบนเครื่องที่ยังไม่มีฐานข้อมูล
+
+    คืน False ถ้าไม่มีไฟล์ให้กู้ (ถือว่าเริ่มจากศูนย์ ไม่ใช่ความผิดพลาด)
+    """
+    if not path.exists():
+        return False
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.executescript(path.read_text(encoding="utf-8"))
+    conn.commit()
+    conn.close()
+    return True
