@@ -159,6 +159,44 @@ INSERT INTO "market_snapshot" VALUES(149,431960,'2026-08-27T21:05:09+00:00','pla
 INSERT INTO "market_snapshot" VALUES(150,1790230,'2026-08-27T21:05:09+00:00','platform',1,'Wallpaper Engine - Editor Extensions');
 INSERT INTO "market_snapshot" VALUES(151,4001890,'2026-08-27T21:05:09+00:00','mine',5,'How to Fish');
 INSERT INTO "market_snapshot" VALUES(152,1478500,'2026-08-27T21:05:09+00:00','mine',1,'Big Walk');
+INSERT INTO "market_snapshot" VALUES(153,3241660,'2026-08-27T21:16:51+00:00','platform',50,'R.E.P.O.');
+INSERT INTO "market_snapshot" VALUES(154,4704690,'2026-08-27T21:16:51+00:00','platform',35,'MECCHA CHAMELEON');
+INSERT INTO "market_snapshot" VALUES(155,3949040,'2026-08-27T21:16:51+00:00','platform',25,'RV There Yet?');
+INSERT INTO "market_snapshot" VALUES(156,105600,'2026-08-27T21:16:51+00:00','platform',24,'Terraria');
+INSERT INTO "market_snapshot" VALUES(157,3527290,'2026-08-27T21:16:51+00:00','platform',20,'PEAK');
+INSERT INTO "market_snapshot" VALUES(158,3164500,'2026-08-27T21:16:51+00:00','platform',16,'Schedule I');
+INSERT INTO "market_snapshot" VALUES(159,4001890,'2026-08-27T21:16:51+00:00','platform',15,'How to Fish');
+INSERT INTO "market_snapshot" VALUES(160,648800,'2026-08-27T21:16:51+00:00','platform',15,'Raft');
+INSERT INTO "market_snapshot" VALUES(161,108600,'2026-08-27T21:16:51+00:00','platform',13,'Project Zomboid');
+INSERT INTO "market_snapshot" VALUES(162,1962700,'2026-08-27T21:16:51+00:00','platform',11,'Subnautica 2');
+INSERT INTO "market_snapshot" VALUES(163,4069520,'2026-08-27T21:16:51+00:00','platform',10,'Super Battle Golf');
+INSERT INTO "market_snapshot" VALUES(164,286160,'2026-08-27T21:16:51+00:00','platform',8,'Tabletop Simulator');
+INSERT INTO "market_snapshot" VALUES(165,739630,'2026-08-27T21:16:51+00:00','platform',7,'Phasmophobia');
+INSERT INTO "market_snapshot" VALUES(166,251570,'2026-08-27T21:16:51+00:00','platform',5,'7 Days to Die');
+INSERT INTO "market_snapshot" VALUES(167,1943950,'2026-08-27T21:16:51+00:00','platform',5,'Escape the Backrooms');
+INSERT INTO "market_snapshot" VALUES(168,1326470,'2026-08-27T21:16:51+00:00','platform',5,'Sons Of The Forest');
+INSERT INTO "market_snapshot" VALUES(169,413150,'2026-08-27T21:16:51+00:00','platform',3,'Stardew Valley');
+INSERT INTO "market_snapshot" VALUES(170,2825890,'2026-08-27T21:16:51+00:00','platform',3,'Tank maze');
+INSERT INTO "market_snapshot" VALUES(171,3447340,'2026-08-27T21:16:51+00:00','platform',2,'Alacrity');
+INSERT INTO "market_snapshot" VALUES(172,1097150,'2026-08-27T21:16:51+00:00','platform',2,'Fall Guys');
+INSERT INTO "market_snapshot" VALUES(173,366760,'2026-08-27T21:16:51+00:00','platform',1,'Adorables');
+INSERT INTO "market_snapshot" VALUES(174,2399830,'2026-08-27T21:16:51+00:00','platform',1,'ARK: Survival Ascended');
+INSERT INTO "market_snapshot" VALUES(175,1478500,'2026-08-27T21:16:51+00:00','platform',1,'Big Walk');
+INSERT INTO "market_snapshot" VALUES(176,2928600,'2026-08-27T21:16:51+00:00','platform',1,'Demon Slayer -Kimetsu no Yaiba- The Hinokami Chronicles 2');
+INSERT INTO "market_snapshot" VALUES(177,322330,'2026-08-27T21:16:51+00:00','platform',1,'Don''t Starve Together');
+INSERT INTO "market_snapshot" VALUES(178,1551360,'2026-08-27T21:16:51+00:00','platform',1,'Forza Horizon 5');
+INSERT INTO "market_snapshot" VALUES(179,881020,'2026-08-27T21:16:51+00:00','platform',1,'Granblue Fantasy: Relink');
+INSERT INTO "market_snapshot" VALUES(180,897640,'2026-08-27T21:16:51+00:00','platform',1,'Gun Crazy');
+INSERT INTO "market_snapshot" VALUES(181,1030300,'2026-08-27T21:16:51+00:00','platform',1,'Hollow Knight: Silksong');
+INSERT INTO "market_snapshot" VALUES(182,477160,'2026-08-27T21:16:51+00:00','platform',1,'Human Fall Flat');
+INSERT INTO "market_snapshot" VALUES(183,728880,'2026-08-27T21:16:51+00:00','platform',1,'Overcooked! 2');
+INSERT INTO "market_snapshot" VALUES(184,246900,'2026-08-27T21:16:51+00:00','platform',1,'Viscera Cleanup Detail');
+INSERT INTO "market_snapshot" VALUES(185,265210,'2026-08-27T21:16:51+00:00','platform',1,'Viscera Cleanup Detail: Santa''s Rampage');
+INSERT INTO "market_snapshot" VALUES(186,255520,'2026-08-27T21:16:51+00:00','platform',1,'Viscera Cleanup Detail: Shadow Warrior');
+INSERT INTO "market_snapshot" VALUES(187,431960,'2026-08-27T21:16:51+00:00','platform',1,'Wallpaper Engine');
+INSERT INTO "market_snapshot" VALUES(188,1790230,'2026-08-27T21:16:51+00:00','platform',1,'Wallpaper Engine - Editor Extensions');
+INSERT INTO "market_snapshot" VALUES(189,4001890,'2026-08-27T21:16:51+00:00','mine',5,'How to Fish');
+INSERT INTO "market_snapshot" VALUES(190,1478500,'2026-08-27T21:16:51+00:00','mine',1,'Big Walk');
 CREATE TABLE snapshot (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     appid            INTEGER NOT NULL REFERENCES title(appid),
@@ -2865,5 +2903,5 @@ CREATE UNIQUE INDEX idx_market_unique
     ON market_snapshot(appid, taken_at, scope);
 DELETE FROM "sqlite_sequence";
 INSERT INTO "sqlite_sequence" VALUES('snapshot',2158);
-INSERT INTO "sqlite_sequence" VALUES('market_snapshot',152);
+INSERT INTO "sqlite_sequence" VALUES('market_snapshot',190);
 COMMIT;
