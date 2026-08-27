@@ -25,6 +25,28 @@ uv run --project game-radar game-radar run
 
 สั่งรันเดี๋ยวนี้ได้ที่แท็บ Actions → เลือก workflow → Run workflow
 
+### ข้อจำกัดตอนนี้: ข้อมูลตลาดเก็บบน cloud ไม่ได้
+
+หน้าร้าน 499k อยู่หลัง Cloudflare ซึ่งกัน IP ของ datacenter — ยิงจากเครื่อง GitHub
+ได้ `HTTP 403` พร้อมหน้า challenge (`<title>Just a moment...`) ส่วนยิงจากเน็ตบ้านผ่านปกติ
+
+**จะไม่แก้ด้วยการหลบ challenge** ทางที่ถูกคือใช้ API ทางการของแพลตฟอร์มที่
+[`/docs/api`](https://store.499k-network.com/docs/api) ซึ่งเปิดให้พาร์ทเนอร์สมัครคีย์ได้
+และให้ข้อมูลดีกว่าที่เราดึงอยู่ด้วยซ้ำ — `GET /api/v1/products/{appid}/availability`
+คืนช่วงเวลาที่แต่ละไอดีถูกจอง (`busy`) กับเรทค่าเช่าจริง (`rates`)
+นั่นคือ **ยอดจองจริง** ไม่ใช่แค่จำนวนไอดีที่สต็อกไว้
+
+ระหว่างรอคีย์ workflow จะข้ามขั้นนี้เองแล้วเก็บฝั่ง Steam ต่อ (`--allow-fail`)
+ถ้าอยากอัปเดตข้อมูลตลาดด้วยมือจากเครื่องที่บ้าน ต้องทำตามลำดับนี้เท่านั้น
+ไม่งั้นข้อมูลที่ cloud เก็บไว้จะถูกทับหาย:
+
+```bash
+git pull && uv run --project game-radar game-radar restore --force && uv run --project game-radar game-radar market && uv run --project game-radar game-radar dump
+```
+
+แล้วค่อย commit `data/radar.sql` — ขั้น `restore --force` สำคัญ เพราะต้องเอาข้อมูล
+ที่ cloud เก็บไว้มาเป็นฐานก่อน ไม่ใช่เขียนทับด้วยฐานข้อมูลเก่าในเครื่อง
+
 ### ฐานข้อมูลเก็บยังไง
 
 ประวัติที่สะสมมาคือของชิ้นเดียวที่มีค่าจริงในโปรเจกต์นี้ เพราะเก็บย้อนหลังใหม่ไม่ได้
