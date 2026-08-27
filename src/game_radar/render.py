@@ -79,9 +79,32 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
   background-repeat:no-repeat}
 .bar select:hover{border-color:var(--muted)}
 .bar select:focus{border-color:var(--accent)}
-/* ตัวเลือกในลิสต์ที่กางออกมาถูกวาดโดยระบบปฏิบัติการ จัดสไตล์ได้จำกัดมาก
-   กำหนดสีพื้นกับสีตัวอักษรไว้ เพื่อไม่ให้กลายเป็นกล่องขาวโพลนตอนธีมมืด */
-.bar select option{background:var(--panel);color:var(--fg)}
+/* รายการที่กางออกมาของ <select> ถูกวาดโดยระบบปฏิบัติการ ตั้ง CSS ให้ option
+   ไปก็ไม่มีผล (computed style บอกว่าเปลี่ยนแล้ว แต่ popup จริงยังขาวอยู่)
+   จึงซ่อน select ไว้ใช้เก็บสถานะอย่างเดียว แล้ววาดรายการเองด้วย div */
+.bar select.native{position:absolute;opacity:0;pointer-events:none;width:1px;height:1px}
+.sel{position:relative;display:inline-block}
+.selbtn{background:var(--bg);color:var(--fg);border:1px solid var(--line);
+  border-radius:7px;padding:7px 30px 7px 10px;font-size:.82rem;font-family:inherit;
+  cursor:pointer;text-align:left;min-width:120px;position:relative;
+  transition:border-color .12s}
+.selbtn:hover{border-color:var(--muted)}
+.selbtn[aria-expanded=true]{border-color:var(--accent)}
+.selbtn::after{content:'';position:absolute;right:11px;top:50%;
+  width:0;height:0;margin-top:-2px;
+  border-left:4px solid transparent;border-right:4px solid transparent;
+  border-top:5px solid currentColor;opacity:.6}
+.sellist{position:absolute;z-index:40;top:calc(100% + 4px);left:0;min-width:100%;
+  background:var(--panel);border:1px solid var(--line);border-radius:9px;
+  padding:4px;box-shadow:0 6px 20px rgba(0,0,0,.28);white-space:nowrap}
+.selopt{padding:7px 12px;border-radius:6px;font-size:.82rem;cursor:pointer;
+  color:var(--fg)}
+.selopt:hover{background:var(--chip)}
+.selopt[aria-selected=true]{color:var(--accent)}
+#tip{position:fixed;z-index:90;max-width:340px;pointer-events:none;
+  background:var(--panel);color:var(--fg);border:1px solid var(--line);
+  border-radius:9px;padding:10px 12px;font-size:.76rem;line-height:1.55;
+  white-space:pre-line;box-shadow:0 8px 24px rgba(0,0,0,.32);display:none}
 .bar input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;
   cursor:pointer;margin:0}
 .grid{display:grid;gap:14px;
@@ -362,9 +385,9 @@ function card(d) {
     (d.ccu == null ? '—' : nf.format(d.ccu)) +
     '</b><span>คนเล่นตอนนี้</span></div>' + stock + spark(d.history) + '</div>' +
     '<div class="surge"><span class="score ' + scoreClass(d.opportunity_score) +
-    '" title="' + esc(breakdown(d)) + '">' + d.opportunity_score.toFixed(1) +
-    '</span><span title="' + esc(breakdown(d)) + '">น่าซื้อ</span>' +
-    '<span class="basis" title="คะแนนกระแสดิบ ฐาน: ' + esc(b[0]) + ' — ' + esc(b[1]) + '">' +
+    '" data-tip="' + esc(breakdown(d)) + '">' + d.opportunity_score.toFixed(1) +
+    '</span><span data-tip="' + esc(breakdown(d)) + '">น่าซื้อ</span>' +
+    '<span class="basis" data-tip="คะแนนกระแสดิบ' + NL + 'ฐาน: ' + esc(b[0]) + ' — ' + esc(b[1]) + '">' +
     'กระแส ' + d.surge_score.toFixed(1) + '</span></div>' +
     (notes ? '<div class="notes">' + notes + '</div>' : '') +
     '</div></a>';
@@ -442,7 +465,7 @@ function rankTable(rows) {
       '<td class="num">' + (d.is_free ? 'ฟรี' : baht(d.price_final)) + '</td>' +
       '<td>' + (d.is_coop ? 'Co-op' : d.is_multi ? 'Multi' : 'Single') + '</td>' +
       '<td class="num">' + stock + '</td>' +
-      '<td class="num" title="' + esc(breakdown(d)) + '">' +
+      '<td class="num" data-tip="' + esc(breakdown(d)) + '">' +
         d.opportunity_score.toFixed(1) + '</td></tr>';
   }).join('');
   return '<div class="panel" style="padding:4px 6px"><table class="rank">' +
@@ -548,6 +571,113 @@ document.getElementById('vRank').addEventListener('click', () => setView('rank')
 
 ['q', 'fOpp', 'fUnstocked', 'fFresh', 'fMode', 'fGenre', 'fPrice', 'fSort'].forEach(id =>
   document.getElementById(id).addEventListener('input', apply));
+// ---------- dropdown ที่เราวาดเอง ----------
+// native <select> ใช้ popup ของ OS ซึ่งจัดสไตล์ไม่ได้ (ยืนยันแล้วว่าเป็นกล่องขาว
+// ในธีมมืดถึงจะตั้ง CSS ให้ option ก็ตาม) จึงเก็บ select ไว้เป็นแหล่งสถานะอย่างเดียว
+// แล้ววาด UI เอง เพื่อไม่ต้องแก้ตรรกะ apply() ที่อ่านค่าจาก select อยู่แล้ว
+function enhanceSelect(sel) {
+  sel.classList.add('native');
+  const wrap = document.createElement('span');
+  wrap.className = 'sel';
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.appendChild(sel);
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'selbtn';
+  btn.setAttribute('aria-haspopup', 'listbox');
+  btn.setAttribute('aria-expanded', 'false');
+  wrap.appendChild(btn);
+
+  const list = document.createElement('div');
+  list.className = 'sellist';
+  list.setAttribute('role', 'listbox');
+  list.hidden = true;
+  wrap.appendChild(list);
+
+  const sync = () => {
+    const o = sel.options[sel.selectedIndex];
+    btn.textContent = o ? o.textContent : '';
+  };
+  const close = () => { list.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+  const open = () => {
+    document.querySelectorAll('.sellist').forEach(l => { l.hidden = true; });
+    document.querySelectorAll('.selbtn').forEach(b => b.setAttribute('aria-expanded', 'false'));
+    list.innerHTML = '';
+    [...sel.options].forEach((o, i) => {
+      const item = document.createElement('div');
+      item.className = 'selopt';
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', String(i === sel.selectedIndex));
+      item.textContent = o.textContent;
+      item.addEventListener('click', () => {
+        sel.selectedIndex = i;
+        sync();
+        close();
+        sel.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      list.appendChild(item);
+    });
+    list.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+  };
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    list.hidden ? open() : close();
+  });
+  btn.addEventListener('keydown', e => {
+    if (e.key === 'Escape') close();
+  });
+  sync();
+}
+document.querySelectorAll('.bar select').forEach(enhanceSelect);
+document.addEventListener('click', () => {
+  document.querySelectorAll('.sellist').forEach(l => { l.hidden = true; });
+  document.querySelectorAll('.selbtn').forEach(b => b.setAttribute('aria-expanded', 'false'));
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  document.querySelectorAll('.sellist').forEach(l => { l.hidden = true; });
+  document.querySelectorAll('.selbtn').forEach(b => b.setAttribute('aria-expanded', 'false'));
+});
+
+// ---------- tooltip ที่เราวาดเอง ----------
+// title= ของเบราว์เซอร์ใช้กล่องของ OS (พื้นเหลือง ตัวดำ) ซึ่งไม่เข้าธีมและ
+// หน่วงก่อนโผล่ประมาณหนึ่งวินาที กล่องนี้โผล่ทันทีและใช้สีเดียวกับหน้าเว็บ
+const tip = document.createElement('div');
+tip.id = 'tip';
+document.body.appendChild(tip);
+let tipTarget = null;
+
+function placeTip(e) {
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + w > innerWidth - 8) x = e.clientX - w - pad;
+  if (y + h > innerHeight - 8) y = e.clientY - h - pad;
+  tip.style.left = Math.max(8, x) + 'px';
+  tip.style.top = Math.max(8, y) + 'px';
+}
+document.addEventListener('mouseover', e => {
+  const t = e.target.closest('[data-tip]');
+  if (!t || t === tipTarget) return;
+  tipTarget = t;
+  tip.textContent = t.getAttribute('data-tip');
+  tip.style.display = 'block';
+  placeTip(e);
+});
+document.addEventListener('mousemove', e => { if (tipTarget) placeTip(e); });
+document.addEventListener('mouseout', e => {
+  if (!tipTarget) return;
+  if (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('[data-tip]') === tipTarget) return;
+  tipTarget = null;
+  tip.style.display = 'none';
+});
+// กันไม่ให้การคลิกอ่านคะแนนพาไปหน้า Steam
+document.addEventListener('click', e => {
+  if (e.target.closest('.surge')) { e.preventDefault(); e.stopPropagation(); }
+});
+
 drawChart();
 apply();
 </script>
