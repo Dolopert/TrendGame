@@ -69,10 +69,25 @@ CHART_SIZE = 100
 FRESH_DAYS = 365
 RECENT_DAYS = 730
 
-# พื้นขั้นต่ำของจำนวนคนเล่น — วัดจากแค็ตตาล็อกร้านเช่าจริง 16 เกมที่จับคู่กับ CCU ได้
-# ตัวที่ต่ำสุดที่ตลาดยอมสต็อกยังมี 3,795 คน ค่ากลางอยู่ที่ 21,670
-# ไม่มีพื้นนี้ เกมเล็กที่โตจาก 16 เป็น 177 คนจะได้คะแนนโตสูงกว่าเกมจริงทุกตัว
-MIN_CCU_FOR_RENTAL = 3_000
+# พื้นขั้นต่ำของจำนวนคนเล่น — กันเกมเล็กที่โตจาก 16 เป็น 177 คนไม่ให้ได้คะแนนโต
+# สูงกว่าเกมจริงทุกตัว
+#
+# ตอนแรกตั้ง 3,000 จากตัวอย่าง 16 เกมที่จับคู่ได้ตอนนั้น พอเรดาร์ครอบคลุมเกม
+# ที่ตลาดสต็อกครบทั้ง 36 ตัวแล้วพบว่าตั้งสูงไป — Super Battle Golf มีคนเล่นแค่ 914
+# แต่ตลาดลงเงินไป 10 ใบ ส่วนที่ CCU ใกล้ศูนย์จริง ๆ ล้วนเป็นเกมที่ตลาดถือไว้ใบเดียว
+# จึงลดพื้นลงมาต่ำกว่า 914 เล็กน้อย
+MIN_CCU_FOR_RENTAL = 800
+
+# เกมเก่าที่ตลาดยังสต็อกอยู่จริงถือว่าเป็น "ขายได้ตลอด" ไม่ใช่ "ตายแล้ว"
+# เกณฑ์อายุมีไว้ตัดเกมที่คนอยากเล่นซื้อไปหมดแล้ว แต่ตัดพลาดไปโดน co-op คลาสสิก
+# ที่ตลาดยังลงเงินอยู่ (Terraria 24 ใบ · Raft 15 · Project Zomboid 13 · Phasmophobia 7)
+# ใช้สต็อกจริงเป็นหลักฐานว่ามันยังมีดีมานด์ — ตั้งขั้นต่ำ 3 ใบเพื่อกันหางที่ร้าน
+# บังเอิญมีติดไว้ใบสองใบ (Viscera Cleanup Detail ฿57 1 ใบ ไม่ใช่ evergreen)
+EVERGREEN_MIN_STOCK = 3
+
+# จำนวนไอดีขั้นต่ำที่ถือว่า "ตลาดลงเงินจริง" ไม่ใช่ร้านบังเอิญมีติดไว้
+# ใช้เป็นหลักฐานดีมานด์แทนสัญญาณจากชาร์ต Steam ซึ่งครอบคลุมแคบเกินไป
+MARKET_EVIDENCE_MIN_STOCK = 3
 
 _MONTHS = {m: i for i, m in enumerate(
     ["jan", "feb", "mar", "apr", "may", "jun",
@@ -113,6 +128,7 @@ class Assessment:
     release_date: str | None
     age_days: int | None
     freshness: str
+    is_evergreen: bool
     is_single: bool
     is_multi: bool
     is_coop: bool
@@ -185,14 +201,16 @@ def _freshness(age: int | None, coming_soon: bool) -> str:
 def _opportunity(a: dict) -> float:
     """คะแนนโอกาสสำหรับร้านที่เพิ่งเข้าตลาด
 
-    ตั้งใจให้ตอบคำถามเดียว: "ควรเอาเงินไปซื้อไอดีเกมไหนก่อน"
-    ไม่ใช่ "เกมไหนดัง" — เกมดังที่คู่แข่งสต็อกไว้ 50 ใบแล้วมีค่าเป็นศูนย์สำหรับรายใหม่
+    ตอบคำถาม: "เกมนี้น่าเอามาปล่อยเช่าแค่ไหน"
+
+    ไม่ได้คิดเรื่องคู่แข่งสต็อกไว้เท่าไรแล้ว (ถอดออกตามที่เจ้าของร้านสั่ง)
+    ตัวเลขสต็อกยังแสดงบน dashboard ให้กรองและเรียงเองได้
     """
     if a["status"] == "blocked":
         return 0.0
     if not (a["is_coop"] or a["is_multi"]):
         return 0.0
-    if a["freshness"] in ("old", "unknown"):
+    if a["freshness"] in ("old", "unknown") and not a["is_evergreen"]:
         return 0.0
     # เกมที่วางขายแล้วต้องมีคนเล่นถึงพื้นก่อน — เกมยังไม่ขายยกเว้นเพราะยังไม่มี CCU ให้วัด
     if a["status"] == "prospect" and (a["ccu"] or 0) < MIN_CCU_FOR_RENTAL:
@@ -210,10 +228,20 @@ def _opportunity(a: dict) -> float:
         # เกมที่วางขายแล้ว: เอาสัญญาณที่แรงกว่าระหว่างกระแสของตัวเอง
         # กับการติดอันดับขายดีในหมวด co-op
         base = max(a["surge_score"], from_rank(a["coop_topsellers_rank"], 6.0))
+        # สองสัญญาณข้างบนมาจากชาร์ตของ Steam ซึ่งครอบคลุมแคบมาก เกมที่ตลาดเช่า
+        # ลงเงินจริงส่วนใหญ่ไม่ติดทั้งคู่ แล้วได้ base เป็นศูนย์ทั้งที่ขายได้จริง
+        # (RV There Yet? 25 ใบ · Schedule I 16 · Raft 15 · Subnautica 2 11 — ศูนย์หมด)
+        # การที่ร้านยอมจมเงินซื้อไอดีเก็บไว้หลายใบ คือหลักฐานดีมานด์ที่ตรงกว่าชาร์ต
+        if a["stocked_total"] >= MARKET_EVIDENCE_MIN_STOCK:
+            base = max(base, 2.0 + 1.5 * math.log10(a["stocked_total"]))
     if base <= 0:
         return 0.0
 
-    fresh_boost = {"upcoming": 1.6, "fresh": 1.35, "recent": 1.0}[a["freshness"]]
+    fresh_boost = (
+        1.0
+        if a["is_evergreen"]
+        else {"upcoming": 1.6, "fresh": 1.35, "recent": 1.0}[a["freshness"]]
+    )
     coop_boost = 1.25 if a["is_coop"] else 1.0
 
     # หมายเหตุ: เคยคูณด้วยช่องว่างที่เหลือในตลาด (ยิ่งคู่แข่งสต็อกเยอะ คะแนนยิ่งต่ำ)
@@ -253,6 +281,11 @@ def assess(
     coming = bool(row["coming_soon"])
     fresh = _freshness(age, coming)
 
+    n_all = stocked.get(row["appid"], 0)
+    n_mine = mine.get(row["appid"], 0)
+    # เกมเก่าที่ตลาดยังลงเงินอยู่จริง = ขายได้ตลอด ไม่ใช่ตายแล้ว
+    is_evergreen = fresh in ("old", "unknown") and n_all >= EVERGREEN_MIN_STOCK
+
     blockers: list[str] = []
     notes: list[str] = []
 
@@ -272,13 +305,13 @@ def assess(
 
     if not (row["is_coop"] or row["is_multi"]):
         notes.append("เล่นคนเดียวล้วน — ตลาดเช่าแทบไม่มีดีมานด์ (1% ของไอดีทั้งตลาด)")
-    if fresh == "old":
+    if fresh == "old" and not is_evergreen:
         notes.append("ออกเกิน 2 ปี — คนที่อยากเล่นซื้อไปแล้ว")
+    if is_evergreen:
+        notes.append(f"เกมเก่าแต่ตลาดยังสต็อก {n_all} ใบ — ขายได้ตลอด")
     if row["is_online_pvp"]:
         notes.append("มี Online PvP — เสี่ยง anti-cheat แบนไอดีจาก IP กระโดด")
 
-    n_all = stocked.get(row["appid"], 0)
-    n_mine = mine.get(row["appid"], 0)
     if n_all == 0:
         notes.append("ยังไม่มีร้านไหนบนแพลตฟอร์มสต็อกเกมนี้")
     elif n_mine:
@@ -296,6 +329,7 @@ def assess(
         "is_coop": bool(row["is_coop"]),
         "is_multi": bool(row["is_multi"]),
         "freshness": fresh,
+        "is_evergreen": is_evergreen,
         "surge_score": round(score, 2),
         "stocked_total": n_all,
         "stocked_mine": n_mine,
@@ -317,6 +351,7 @@ def assess(
         release_date=row["release_date"],
         age_days=age,
         freshness=fresh,
+        is_evergreen=is_evergreen,
         is_single=bool(row["is_single"]),
         is_multi=bool(row["is_multi"]),
         is_coop=bool(row["is_coop"]),

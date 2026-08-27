@@ -85,6 +85,17 @@ def run_scan(
                 s[f"{bucket}_rank"] = pos
                 names.setdefault(appid, name)
 
+        # เกมที่ร้านเช่าสต็อกอยู่จริงต้องอยู่ในเรดาร์เสมอ ไม่ว่าจะติดชาร์ตหรือไม่
+        # ไม่งั้นระบบให้คะแนนสิ่งที่มองไม่เห็น — เคยพลาดไป 20 จาก 36 เกมของตลาด
+        # รวมถึงตัวที่สต็อกหนักอย่าง RV There Yet? (25 ใบ) และ Schedule I (16 ใบ)
+        market_ids = db.latest_market(conn, "platform")
+        market_names = db.market_names(conn)
+        for appid in market_ids:
+            slot(appid)
+            names.setdefault(appid, market_names.get(appid, f"app {appid}"))
+        if verbose and market_ids:
+            print(f"      + เกมที่ตลาดเช่าสต็อกอยู่ {len(market_ids)} ตัว", flush=True)
+
         # เกมที่ยังไม่รู้ CCU ต้องยิงทีละตัว
         # เกมที่ยังไม่วางขายจะไม่มี CCU อยู่แล้ว ข้ามไปเลยเพื่อไม่ยิงเปล่า
         missing = [

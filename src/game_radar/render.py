@@ -117,6 +117,7 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
         <option value="upcoming">ยังไม่วางขาย</option>
         <option value="fresh">ออกไม่เกิน 1 ปี</option>
         <option value="recent">1-2 ปี</option>
+        <option value="evergreen">เก่าแต่ขายได้ตลอด</option>
         <option value="old">เกิน 2 ปี</option>
       </select>
     </label>
@@ -219,7 +220,9 @@ const FRESH_LABEL = {
 
 function card(d) {
   const modes = [];
-  const fl = FRESH_LABEL[d.freshness] || ['', ''];
+  const fl = d.is_evergreen
+    ? ['ขายได้ตลอด', 'multi']
+    : (FRESH_LABEL[d.freshness] || ['', '']);
   if (fl[0]) modes.push('<span class="chip ' + fl[1] + '">' + fl[0] + '</span>');
   if (d.is_coop) modes.push('<span class="chip multi">Co-op</span>');
   else if (d.is_multi) modes.push('<span class="chip multi">Multi-player</span>');
@@ -279,7 +282,8 @@ function apply() {
     if (q && !d.name.toLowerCase().includes(q)) return false;
     if (onlyOpp && !(d.opportunity_score > 0)) return false;
     if (onlyFree && d.stocked_total > 0) return false;
-    if (fresh !== 'all' && d.freshness !== fresh) return false;
+    if (fresh === 'evergreen') { if (!d.is_evergreen) return false; }
+    else if (fresh !== 'all' && (d.freshness !== fresh || d.is_evergreen)) return false;
     if (mode === 'single' && !(d.is_single && !d.is_multi)) return false;
     if (mode === 'multi' && !d.is_multi) return false;
     if (mode === 'coop' && !d.is_coop) return false;

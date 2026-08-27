@@ -329,3 +329,15 @@ def market_delta(conn: sqlite3.Connection, scope: str = "platform") -> dict[int,
 def market_scan_count(conn: sqlite3.Connection) -> int:
     cur = conn.execute("SELECT COUNT(DISTINCT taken_at) AS n FROM market_snapshot")
     return cur.fetchone()["n"]
+
+
+def market_names(conn: sqlite3.Connection) -> dict[int, str]:
+    """ชื่อเกมล่าสุดที่แพลตฟอร์มร้านเช่าใช้ — เอาไว้ตั้งชื่อ title stub"""
+    cur = conn.execute(
+        """
+        SELECT appid, game_name FROM market_snapshot
+        WHERE game_name IS NOT NULL
+        GROUP BY appid HAVING MAX(taken_at)
+        """
+    )
+    return {r["appid"]: r["game_name"] for r in cur.fetchall()}
