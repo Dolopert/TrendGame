@@ -27,40 +27,47 @@ TEMPLATE = r"""<meta charset="utf-8">
 <title>Game Radar</title>
 <style>
 :root{
-  --bg:#f6f7f9; --panel:#fff; --line:#e3e6ea; --fg:#14161a; --muted:#6b7280;
-  --accent:#2563eb; --hot:#dc2626; --warm:#ea580c; --cool:#0891b2; --ok:#059669;
-  --chip:#eef1f5;
-}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme=light]){
-    --bg:#0d0f13; --panel:#161a21; --line:#252b35; --fg:#e6e9ee; --muted:#8b95a5;
-    --accent:#60a5fa; --hot:#f87171; --warm:#fb923c; --cool:#22d3ee; --ok:#34d399;
-    --chip:#1e242e;
-  }
-}
-:root[data-theme=dark]{
-  --bg:#0d0f13; --panel:#161a21; --line:#252b35; --fg:#e6e9ee; --muted:#8b95a5;
-  --accent:#60a5fa; --hot:#f87171; --warm:#fb923c; --cool:#22d3ee; --ok:#34d399;
-  --chip:#1e242e;
+  /* พาเลตต์เดียวกับ Hotel Finance — โทนมืดอย่างเดียว ไม่มีโหมดสว่าง
+     ตัดสีลงเหลือสองตัว: เขียว = ดี/เลือกอยู่ · ส้ม = ร้อน/ต้องระวัง
+     ที่เหลือเป็นเทาสามระดับ (fg / muted / dim) ตามลำดับความสำคัญ */
+  /* color-scheme ไม่ได้จัดสไตล์อะไรเลย แต่บอกเบราว์เซอร์ว่าให้วาด native widget
+     ทุกตัว (popup ของ select, scrollbar, caret) ด้วยชุดสีมืด
+     เป็นตัวเดียวที่แก้ "popup ขาวบนหน้ามืด" ได้จริง — CSS บน <option> ไม่มีผล
+     จำเป็นเพราะถ้า JS ยังไม่ทันรันหรือพัง select จะกลับไปเป็นของ OS ทันที */
+  color-scheme:dark;
+  --bg:#151619; --panel:#191a1d; --chip:#202225; --line:#2b2d31;
+  --fg:#ecedf0; --muted:#9a9ea7; --dim:#696d76;
+  --accent:#4ade80; --ok:#4ade80; --warm:#ff8a4c; --hot:#ff8a4c; --cool:#9a9ea7;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",
+    Arial,"Noto Sans Thai",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);
-  font-family:"Segoe UI",system-ui,-apple-system,"Noto Sans Thai",sans-serif;
-  line-height:1.5}
-.wrap{max-width:1240px;margin:0 auto;padding:28px 20px 60px}
-h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
-.sub{color:var(--muted);font-size:.88rem;margin-bottom:22px}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font);
+  line-height:1.5;min-height:100vh;background-attachment:fixed;
+  background-image:radial-gradient(60% 50% at 80% -10%,#1d2733 0,transparent 60%),
+                   radial-gradient(50% 40% at 0% 0%,#231a24 0,transparent 55%)}
+.wrap{max-width:1240px;margin:0 auto;padding:48px 22px 60px}
+.eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--accent);font-weight:700}
+h1{font-size:34px;font-weight:800;margin:8px 0 8px;letter-spacing:-.025em;
+  line-height:1.08}
+.sub{color:var(--muted);font-size:14px;margin-bottom:28px;max-width:640px}
 .stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;
-  padding:10px 14px;min-width:110px}
-.stat b{display:block;font-size:1.35rem;line-height:1.2}
-.stat span{color:var(--muted);font-size:.75rem}
-.bar{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:11px 16px;min-width:112px}
+.stat b{display:block;font-size:19px;font-weight:750;line-height:1.25;
+  font-family:var(--mono);letter-spacing:-.02em}
+.stat span{color:var(--dim);font-size:10px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase}
+.bar{background:var(--panel);border:1px solid var(--line);border-radius:16px;
   padding:14px 16px;margin-bottom:22px;display:flex;flex-wrap:wrap;gap:16px;
   align-items:center}
-.bar label{font-size:.82rem;display:flex;align-items:center;gap:6px;cursor:pointer}
+.bar label,.bar .fld{font-size:.82rem;display:flex;align-items:center;gap:6px;
+  cursor:pointer}
+.bar .fld{color:var(--muted)}
 .bar input[type=search]{background:var(--bg);color:var(--fg);
-  border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:.82rem;
+  border:1px solid var(--line);border-radius:10px;padding:7px 11px;font-size:.82rem;
   font-family:inherit;outline:none;transition:border-color .12s}
 .bar input[type=search]:hover{border-color:var(--border-strong,var(--muted))}
 .bar input[type=search]:focus{border-color:var(--accent)}
@@ -68,8 +75,8 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
 .bar select{
   -webkit-appearance:none;-moz-appearance:none;appearance:none;
   background-color:var(--bg);color:var(--fg);
-  border:1px solid var(--line);border-radius:7px;
-  padding:7px 30px 7px 10px;font-size:.82rem;font-family:inherit;
+  border:1px solid var(--line);border-radius:10px;
+  padding:7px 30px 7px 11px;font-size:.82rem;font-family:inherit;
   cursor:pointer;outline:none;transition:border-color .12s;
   background-image:
     linear-gradient(45deg,transparent 50%,currentColor 50%),
@@ -83,9 +90,10 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
    ไปก็ไม่มีผล (computed style บอกว่าเปลี่ยนแล้ว แต่ popup จริงยังขาวอยู่)
    จึงซ่อน select ไว้ใช้เก็บสถานะอย่างเดียว แล้ววาดรายการเองด้วย div */
 .bar select.native{position:absolute;opacity:0;pointer-events:none;width:1px;height:1px}
+.bar select option{background:var(--panel);color:var(--fg)}
 .sel{position:relative;display:inline-block}
 .selbtn{background:var(--bg);color:var(--fg);border:1px solid var(--line);
-  border-radius:7px;padding:7px 30px 7px 10px;font-size:.82rem;font-family:inherit;
+  border-radius:10px;padding:7px 30px 7px 11px;font-size:.82rem;font-family:inherit;
   cursor:pointer;text-align:left;min-width:120px;position:relative;
   transition:border-color .12s}
 .selbtn:hover{border-color:var(--muted)}
@@ -94,64 +102,75 @@ h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
   width:0;height:0;margin-top:-2px;
   border-left:4px solid transparent;border-right:4px solid transparent;
   border-top:5px solid currentColor;opacity:.6}
-.sellist{position:absolute;z-index:40;top:calc(100% + 4px);left:0;min-width:100%;
-  background:var(--panel);border:1px solid var(--line);border-radius:9px;
-  padding:4px;box-shadow:0 6px 20px rgba(0,0,0,.28);white-space:nowrap}
-.selopt{padding:7px 12px;border-radius:6px;font-size:.82rem;cursor:pointer;
+.sellist{position:absolute;z-index:40;top:calc(100% + 5px);left:0;min-width:100%;
+  background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.45);white-space:nowrap}
+.selopt{padding:7px 12px;border-radius:8px;font-size:.82rem;cursor:pointer;
   color:var(--fg)}
 .selopt:hover{background:var(--chip)}
 .selopt[aria-selected=true]{color:var(--accent)}
 #tip{position:fixed;z-index:90;max-width:340px;pointer-events:none;
   background:var(--panel);color:var(--fg);border:1px solid var(--line);
-  border-radius:9px;padding:10px 12px;font-size:.76rem;line-height:1.55;
-  white-space:pre-line;box-shadow:0 8px 24px rgba(0,0,0,.32);display:none}
+  border-radius:12px;padding:11px 13px;font-size:.76rem;line-height:1.55;
+  white-space:pre-line;box-shadow:0 8px 24px rgba(0,0,0,.45);display:none}
 .bar input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;
   cursor:pointer;margin:0}
 .grid{display:grid;gap:14px;
   grid-template-columns:repeat(auto-fill,minmax(310px,1fr))}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
-  overflow:hidden;display:flex;flex-direction:column}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  overflow:hidden;display:flex;flex-direction:column;transition:.16s}
 .card.dim{opacity:.55}
 .thumb{position:relative;aspect-ratio:460/215;background:var(--chip)}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .rankbadge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.78);
-  color:#fff;border-radius:6px;padding:3px 8px;font-size:.72rem;font-weight:600}
+  color:#fff;border-radius:8px;padding:3px 8px;font-size:.72rem;font-weight:600;
+  font-family:var(--mono)}
 .pricebadge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.78);
-  color:#fff;border-radius:6px;padding:3px 8px;font-size:.75rem;font-weight:600}
+  color:#fff;border-radius:8px;padding:3px 8px;font-size:.75rem;font-weight:600;
+  font-family:var(--mono)}
 .pricebadge .off{color:#a3e635}
 .body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:9px;flex:1}
 .name{font-weight:650;font-size:.98rem;letter-spacing:-.01em}
 .chips{display:flex;flex-wrap:wrap;gap:5px}
-.chip{background:var(--chip);border-radius:5px;padding:2px 7px;font-size:.7rem;
+.chip{background:var(--chip);border-radius:7px;padding:2px 8px;font-size:.7rem;
   color:var(--muted);white-space:nowrap}
 .chip.single{color:var(--ok)}
 .chip.multi{color:var(--cool)}
 .chip.pvp{color:var(--warm)}
 .metrics{display:flex;gap:14px;align-items:flex-end;margin-top:auto}
-.ccu b{font-size:1.15rem;display:block;line-height:1.15}
+.ccu b{font-size:1.15rem;display:block;line-height:1.15;
+  font-family:var(--mono);font-weight:700;letter-spacing:-.02em}
 .ccu span{font-size:.7rem;color:var(--muted)}
 .delta{font-size:.78rem;font-weight:600}
 .up{color:var(--ok)} .down{color:var(--muted)} .new{color:var(--hot)}
 .spark{margin-left:auto}
 .surge{display:flex;align-items:center;gap:7px;font-size:.75rem;color:var(--muted);
   border-top:1px solid var(--line);padding-top:9px}
-.score{font-weight:700;font-size:.95rem}
-.s-hot{color:var(--hot)} .s-warm{color:var(--warm)} .s-mild{color:var(--muted)}
-.basis{background:var(--chip);border-radius:5px;padding:2px 7px;font-size:.68rem}
-.notes{font-size:.73rem;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+.score{font-weight:750;font-size:1rem;font-family:var(--mono);
+  letter-spacing:-.02em}
+/* สามระดับด้วยน้ำหนักสี ไม่ใช่สามสี — ส้มคือ "ร้อนพอให้หยุดดู" เท่านั้น */
+.s-hot{color:var(--warm)} .s-warm{color:var(--fg)} .s-mild{color:var(--dim)}
+.basis{background:var(--chip);border-radius:6px;padding:2px 8px;font-size:.68rem;
+  color:var(--dim)}
+.notes{font-size:.73rem;color:var(--dim);display:flex;flex-direction:column;gap:3px}
 .blocked{color:var(--warm)}
 .empty{text-align:center;color:var(--muted);padding:60px 20px}
 .views{display:flex;gap:6px;margin-bottom:14px}
 .viewbtn{background:var(--panel);border:1px solid var(--line);color:var(--muted);
-  border-radius:8px;padding:7px 14px;font-size:.84rem;font-family:inherit;cursor:pointer}
-.viewbtn[aria-pressed=true]{color:var(--fg);border-color:var(--accent)}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
-  padding:16px;margin-bottom:22px}
-.panel h2{font-size:.95rem;margin:0 0 2px;font-weight:600}
-.panel p{margin:0 0 12px;color:var(--muted);font-size:.78rem}
+  border-radius:10px;padding:7px 15px;font-size:13.5px;font-weight:600;
+  font-family:inherit;cursor:pointer;transition:.13s}
+.viewbtn:hover{border-color:#454952;color:var(--fg)}
+.viewbtn[aria-pressed=true]{background:var(--accent);color:#08130c;
+  border-color:transparent}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  padding:20px;margin-bottom:22px}
+.panel h2{font-size:11px;margin:0 0 6px;font-weight:700;color:var(--accent);
+  letter-spacing:.18em;text-transform:uppercase}
+.panel p{margin:0 0 14px;color:var(--dim);font-size:12.5px}
 .chartwrap{width:100%}
+#chart text{font-family:var(--mono);letter-spacing:-.02em}
 .legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:.75rem}
-.legend span{display:flex;align-items:center;gap:5px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:6px;color:var(--muted)}
 .legend i{width:11px;height:3px;border-radius:2px;display:inline-block}
 table.rank{width:100%;border-collapse:collapse;font-size:.85rem}
 table.rank th{text-align:left;font-weight:500;color:var(--muted);font-size:.75rem;
@@ -160,17 +179,19 @@ table.rank td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-alig
 table.rank tr:last-child td{border-bottom:none}
 table.rank a{color:inherit;text-decoration:none}
 table.rank a:hover{text-decoration:underline}
-.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-.pos{color:var(--muted);font-variant-numeric:tabular-nums;width:38px}
+.num{text-align:right;font-family:var(--mono);letter-spacing:-.02em;
+  white-space:nowrap}
+.pos{color:var(--dim);font-family:var(--mono);width:38px}
 .rthumb{width:72px;height:34px;object-fit:cover;border-radius:4px;display:block}
 a.card{text-decoration:none;color:inherit}
-a.card:hover{border-color:var(--accent)}
+a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
 .warn{background:var(--chip);border:1px solid var(--line);
   border-left:3px solid var(--warm);
-  border-radius:8px;padding:12px 14px;margin-bottom:20px;font-size:.84rem}
+  border-radius:12px;padding:13px 15px;margin-bottom:20px;font-size:.84rem}
 </style>
 
 <div class="wrap">
+  <p class="eyebrow">Steam · 499k Rental Market</p>
   <h1>Game Radar</h1>
   <div class="sub" id="sub"></div>
   <div id="warn"></div>
@@ -506,8 +527,10 @@ function rankTable(rows) {
 // ---------- กราฟเส้น: ดัชนีผู้เล่น ฐาน 100 ----------
 // ใช้ดัชนีแทนค่าดิบ เพราะเกมใหญ่กับเกมเล็กต่างกันหลักแสน ถ้าพล็อตค่าดิบ
 // เส้นของเกมเล็กจะแบนติดพื้นจนมองไม่เห็นว่ามันกำลังพุ่ง
-const LINE_COLORS = ['#e11d48','#2563eb','#059669','#d97706','#7c3aed',
-                     '#0891b2','#be185d','#4d7c0f'];
+// นำด้วยสองสีของธีม (เขียว/ส้ม) แล้วต่อด้วยสีที่ความสว่างใกล้กัน
+// เพื่อไม่ให้เส้นไหนเด่นกว่าเส้นอื่นด้วยตัวสีเอง — ความเด่นควรมาจากรูปทรงของเส้น
+const LINE_COLORS = ['#4ade80','#ff8a4c','#60a5fa','#c084fc',
+                     '#22d3ee','#f472b6','#facc15','#94a3b8'];
 
 function drawChart() {
   const pool = DATA.filter(d => d.series && d.series.length >= 2);
@@ -523,8 +546,8 @@ function drawChart() {
     .sort((a, b) => b.ccu - a.ccu).slice(0, 8);
   if (!picked.length) { document.getElementById('chartpanel').hidden = true; return; }
 
-  hint.textContent = 'ดัชนีผู้เล่น เทียบค่ากลางของเกมนั้นเอง = 100 · ' + stamps.length +
-    ' จุดข้อมูล · แกนเวลาเว้นตามจริง · เส้นเหนือ 100 คือคนเล่นมากกว่าปกติของตัวมันเอง';
+  hint.textContent = 'เทียบค่ากลางของเกมนั้นเอง = 100 · แกนตั้งเป็น log ' +
+    '(200 กับ 50 ห่างจาก 100 เท่ากัน) · แกนเวลาเว้นตามจริง · ' + stamps.length + ' จุดข้อมูล';
 
   const W = 900, H = 280, L = 46, R = 14, T = 14, B = 44;
   // แกน x เว้นตามเวลาจริง ไม่ใช่ลำดับที่ของ scan
@@ -543,24 +566,35 @@ function drawChart() {
   const series = picked.map(d => {
     const base = med(d.series.map(pt => pt[1]).filter(c => c > 0)) || 1;
     return { name: d.name, appid: d.appid,
-             pts: d.series.map(([t, c]) => [t, (c / base) * 100]) };
+             pts: d.series.map(([t, c]) => [t, (Math.max(c, 1) / base) * 100]) };
   });
   const vals = series.flatMap(s => s.pts.map(p => p[1])).concat([100]);
   const lo = Math.min(...vals), hi = Math.max(...vals);
-  const pad = (hi - lo) * 0.12 || 10;
-  const y0 = lo - pad, y1 = hi + pad;
-  const ys = v => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
+  // แกน y เป็น log เพราะสิ่งที่พล็อตคือ "อัตราส่วน" ไม่ใช่ค่าดิบ
+  // โตเป็น 2 เท่า กับเหลือครึ่งเดียว ต้องห่างจากเส้น 100 เท่ากันคนละฝั่ง
+  // ถ้าใช้เส้นตรง ตัวที่พุ่งจะกินพื้นที่จนตัวอื่นแบนติดกัน
+  // (How to Fish แตะ 258 ทำให้อีก 7 เส้นถูกบีบอยู่แค่ช่วง 56-180)
+  const pad = 1.09;
+  const ly0 = Math.log(lo / pad), ly1 = Math.log(hi * pad);
+  const ys = v => T + (1 - (Math.log(v) - ly0) / (ly1 - ly0)) * (H - T - B);
+  // ขีดกริดตามบันไดอัตราส่วน (ครึ่ง · สองเท่า · สามเท่า) ไม่ใช่ระยะเท่า ๆ กัน
+  const LADDER = [10, 15, 20, 25, 33, 50, 67, 100, 150, 200, 300, 400, 600, 1000];
+  const gridv = LADDER.filter(v => v >= lo / pad && v <= hi * pad);
 
   // width 100% + viewBox ให้กราฟย่อขยายตามกล่อง ไม่ต้องมีแถบเลื่อนแนวนอน
   // และป้ายแกนขวาสุดไม่โดนตัด
   let svg = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H +
     '" preserveAspectRatio="xMidYMid meet" style="display:block" ' +
     'role="img" aria-label="ดัชนีผู้เล่นตามเวลา">';
-  [y0, (y0 + y1) / 2, y1].forEach(v => {
-    svg += '<line x1="' + L + '" y1="' + ys(v).toFixed(1) + '" x2="' + (W - R) +
-      '" y2="' + ys(v).toFixed(1) + '" stroke="currentColor" stroke-width="0.5" opacity="0.15"/>' +
-      '<text x="6" y="' + (ys(v) + 4).toFixed(1) + '" font-size="11" fill="currentColor" opacity="0.5">' +
-      v.toFixed(0) + '</text>';
+  gridv.forEach(v => {
+    if (v !== 100) {
+      svg += '<line x1="' + L + '" y1="' + ys(v).toFixed(1) + '" x2="' + (W - R) +
+        '" y2="' + ys(v).toFixed(1) +
+        '" stroke="currentColor" stroke-width="0.5" opacity="0.12"/>';
+    }
+    svg += '<text x="8" y="' + (ys(v) + 4).toFixed(1) + '" font-size="11" ' +
+      'fill="currentColor" opacity="' +
+      (v === 100 ? '0.7' : '0.42') + '">' + v + '</text>';
   });
   svg += '<line x1="' + L + '" y1="' + ys(100).toFixed(1) + '" x2="' + (W - R) +
     '" y2="' + ys(100).toFixed(1) + '" stroke="currentColor" stroke-width="1" ' +
@@ -601,7 +635,8 @@ function drawChart() {
     return '<span><i style="background:' + LINE_COLORS[i % LINE_COLORS.length] + '"></i>' +
       '<a href="' + steamUrl(s.appid) + '" target="_blank" rel="noopener" ' +
       'style="color:inherit;text-decoration:none">' + esc(s.name) + '</a> ' +
-      last.toFixed(0) + '</span>';
+      '<b style="font-family:var(--mono);font-weight:700;color:var(--fg)">' +
+      last.toFixed(0) + '</b></span>';
   }).join('');
 }
 
@@ -622,6 +657,18 @@ document.getElementById('vRank').addEventListener('click', () => setView('rank')
 // ในธีมมืดถึงจะตั้ง CSS ให้ option ก็ตาม) จึงเก็บ select ไว้เป็นแหล่งสถานะอย่างเดียว
 // แล้ววาด UI เอง เพื่อไม่ต้องแก้ตรรกะ apply() ที่อ่านค่าจาก select อยู่แล้ว
 function enhanceSelect(sel) {
+  // <label> ที่ห่อ select อยู่จะ "ส่งต่อคลิก" ไปเปิด popup ของ OS ทันทีที่คลิกปุ่ม
+  // ที่เราวาดเอง เพราะปุ่มอยู่ข้างในตัว label ด้วย — ซ่อน select ไว้ก็ไม่ช่วย
+  // (pointer-events ไม่เกี่ยว label สั่งเปิดตัวควบคุมตรง ๆ ไม่ได้ผ่าน pointer)
+  // แก้ที่โครงสร้าง: เปลี่ยน <label> เป็น <span> ไปเลย ไม่มี label = ไม่มีการส่งต่อ
+  const lab = sel.closest('label');
+  if (lab) {
+    const span = document.createElement('span');
+    span.className = ('fld ' + lab.className).trim();
+    span.style.cssText = lab.style.cssText;
+    while (lab.firstChild) span.appendChild(lab.firstChild);
+    lab.replaceWith(span);
+  }
   sel.classList.add('native');
   const wrap = document.createElement('span');
   wrap.className = 'sel';
@@ -669,6 +716,7 @@ function enhanceSelect(sel) {
   };
 
   btn.addEventListener('click', e => {
+    e.preventDefault();   // กัน label activation ที่จะไปเปิด popup ของ OS
     e.stopPropagation();
     list.hidden ? open() : close();
   });
