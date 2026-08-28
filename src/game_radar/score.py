@@ -200,7 +200,9 @@ def _surge_from_rank(
     """ฐานสำรองตอนยังไม่มีประวัติของตัวเอง
 
     Steam ส่ง last_week_rank มาเสมอ และส่งค่าเกิน 100 ได้ (เจอ 152 มาแล้ว)
-    ฐาน chart_entry จึงแทบไม่ได้ใช้ ส่วนการเข้าชาร์ตใหม่ดูจาก last_week > CHART_SIZE
+    การเข้าชาร์ตใหม่จึงดูจาก last_week > CHART_SIZE เป็นหลัก
+    ส่วนฐาน chart_entry ใช้กับตัวที่ Steam บอกว่าสัปดาห์ก่อนไม่มีอันดับเลย
+    (ผู้เรียกต้อง normalize sentinel -1 เป็น None มาก่อน — ดู assess())
     """
     size = math.log10(max(ccu or 10, 10))
     if rank is None:
@@ -337,7 +339,11 @@ def assess(
 
     ccu = row["ccu"]
     rank = row["played_rank"]
-    last_week = row["last_week_rank"]
+    # Steam ส่ง -1 มาเมื่อ "สัปดาห์ก่อนไม่มีอันดับ" ไม่ใช่ "อันดับที่ -1"
+    # ถ้าปล่อยผ่านจะได้ delta ติดลบ แล้วเกมที่เพิ่งเข้าชาร์ตโดนกดคะแนนแทนที่จะได้
+    # ฐาน chart_entry (How to Fish อยู่สภาพนี้ตลอด 27 ส.ค. ได้ฐาน 4.45 ทั้งที่ติดอันดับ 5)
+    lw = row["last_week_rank"]
+    last_week = lw if (lw or 0) > 0 else None
 
     prior = hist[:-1] if len(hist) > 1 else []
     if ccu and len(prior) >= MIN_DAYS_FOR_HISTORY:
