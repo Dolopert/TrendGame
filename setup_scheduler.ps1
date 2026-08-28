@@ -55,8 +55,13 @@ $trigger = New-ScheduledTaskTrigger -Daily -At $Time
 
 # StartWhenAvailable สำคัญ: ถ้าวันไหนเครื่องปิดตอนถึงเวลา ให้ไปรันทันทีที่เปิด
 # ไม่งั้นวันที่ปิดเครื่องจะกลายเป็นรูในข้อมูลถาวร
+# WakeToRun ปลุกเครื่องจาก sleep/hibernate มารันตามเวลา
+# ปลุกจากเครื่องที่ปิดสนิท (shutdown) ไม่ได้ — อันนั้นไม่มีอะไรทำได้
+# และต้องให้ power plan ของ Windows อนุญาต wake timer ด้วย
+# เช็คด้วย: powercfg /q SCHEME_CURRENT SUB_SLEEP ALLOWWAKETIMERS
 $settingsArgs = @{
     StartWhenAvailable         = $true
+    WakeToRun                  = $true
     DontStopIfGoingOnBatteries = $true
     AllowStartIfOnBatteries    = $true
     ExecutionTimeLimit         = (New-TimeSpan -Minutes 15)
