@@ -13,13 +13,18 @@ import sqlite3
 import time
 from typing import Any
 
-from . import db, steam
+from . import db, reviews, steam
 
 APPDETAILS_DELAY = 1.5  # วินาที — Steam จำกัดราว 200 ครั้ง / 5 นาที
+REVIEWS_DELAY = 1.0     # หน้ารีวิวไม่ได้ประกาศ limit ไว้ หน่วงพอไม่ให้รบกวน
 
 
 def run_scan(
-    conn: sqlite3.Connection, cc: str = "th", metadata_limit: int = 250, verbose: bool = True
+    conn: sqlite3.Connection,
+    cc: str = "th",
+    metadata_limit: int = 250,
+    review_limit: int = 60,
+    verbose: bool = True,
 ) -> dict[str, Any]:
     taken_at = db.utcnow()
     rows: dict[int, dict[str, Any]] = {}
@@ -132,10 +137,31 @@ def run_scan(
             time.sleep(APPDETAILS_DELAY)
         conn.commit()
 
+        # [5/5] รีวิว — แคชนานกว่า metadata เพราะขยับช้ากว่ามาก
+        # และดึงเฉพาะเกมที่มีโอกาสได้ใช้จริง ไม่ใช่ทั้งเรดาร์
+        need = db.appids_needing_reviews(conn, limit=review_limit)
+        if verbose:
+            print(f"[5/5] ดึงรีวิว {len(need)} เกม "
+                  f"(~{len(need) * REVIEWS_DELAY / 60:.1f} นาที) ...", flush=True)
+        got = 0
+        with reviews._client() as rc:
+            for i, appid in enumerate(need, 1):
+                data = reviews.fetch(rc, appid)
+                if data:
+                    db.update_reviews(conn, appid, data)
+                    got += 1
+                else:
+                    db.mark_reviews_failed(conn, appid)
+                if i % 20 == 0:
+                    conn.commit()
+                time.sleep(REVIEWS_DELAY)
+        conn.commit()
+
     return {
         "taken_at": taken_at,
         "titles_seen": len(rows),
         "metadata_fetched": fetched,
+        "reviews_fetched": got,
         "total_scans": db.scan_count(conn),
     }
 

@@ -88,6 +88,15 @@ LATER_COLUMNS = {
     },
     "title": {
         "metadata_failed_at": "TEXT",
+        # ข้อมูลรีวิว — เก็บแยกจาก metadata เพราะขยับช้ากว่ามาก แคชได้นานกว่า
+        "review_total": "INTEGER",
+        "review_positive": "INTEGER",
+        "review_ratio": "REAL",
+        "review_desc": "TEXT",
+        "playtime_median_h": "REAL",
+        "playtime_sample": "INTEGER",
+        "reviews_fetched_at": "TEXT",
+        "reviews_failed_at": "TEXT",
     },
 }
 
@@ -388,3 +397,67 @@ def restore_sql(path: Path, db_path: Path) -> bool:
     conn.commit()
     conn.close()
     return True
+
+
+# ---------- ข้อมูลรีวิว ----------
+
+def appids_needing_reviews(
+    conn: sqlite3.Connection, max_age_days: int = 7, limit: int = 60
+) -> list[int]:
+    """เกมที่ควรดึงรีวิว — ไม่ดึงทุกเกมในเรดาร์เพราะเปลืองเปล่า
+
+    เอาเฉพาะเกมที่มีโอกาสได้ใช้จริง: เล่นหลายคนได้ ขาย (ไม่ฟรี) และเป็นเกมจริง
+    บวกกับทุกเกมที่ตลาดเช่าสต็อกอยู่ ไม่ว่าจะเข้าเกณฑ์อื่นหรือไม่
+    """
+    cur = conn.execute(
+        """
+        SELECT t.appid FROM title t
+        WHERE (
+                t.reviews_fetched_at IS NULL
+                OR julianday('now') - julianday(t.reviews_fetched_at) > :age
+              )
+          AND (
+                t.reviews_failed_at IS NULL
+                OR julianday('now') - julianday(t.reviews_failed_at) > 14
+              )
+          AND (
+                (t.is_free = 0 AND (t.type IS NULL OR t.type = 'game')
+                 AND (t.is_coop = 1 OR t.is_multi = 1))
+                OR t.appid IN (SELECT appid FROM market_snapshot)
+              )
+        -- เรียงตามความสำคัญ ไม่ใช่ตาม appid
+        -- เดิมเรียงด้วย t.appid ทำให้เกมเก่า appid ต่ำได้คิวก่อน
+        -- แล้วเกมที่เป็นผู้สมัครจริง (ออกใหม่ appid สูง) ไม่เคยได้ข้อมูลรีวิวเลย
+        ORDER BY
+            t.reviews_fetched_at IS NOT NULL,          -- ที่ยังไม่เคยดึงมาก่อน
+            t.appid IN (SELECT appid FROM market_snapshot) DESC,
+            COALESCE((SELECT s.ccu FROM snapshot s WHERE s.appid = t.appid
+                      ORDER BY s.taken_at DESC LIMIT 1), 0) DESC
+        LIMIT :lim
+        """,
+        {"age": max_age_days, "lim": limit},
+    )
+    return [r["appid"] for r in cur.fetchall()]
+
+
+def update_reviews(conn: sqlite3.Connection, appid: int, data: dict[str, Any]) -> None:
+    conn.execute(
+        """
+        UPDATE title SET
+            review_total = :review_total,
+            review_positive = :review_positive,
+            review_ratio = :review_ratio,
+            review_desc = :review_desc,
+            playtime_median_h = :playtime_median_h,
+            playtime_sample = :playtime_sample,
+            reviews_fetched_at = :now
+        WHERE appid = :appid
+        """,
+        {**data, "appid": appid, "now": utcnow()},
+    )
+
+
+def mark_reviews_failed(conn: sqlite3.Connection, appid: int) -> None:
+    conn.execute(
+        "UPDATE title SET reviews_failed_at = ? WHERE appid = ?", (utcnow(), appid)
+    )

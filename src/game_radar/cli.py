@@ -22,10 +22,16 @@ DEFAULT_SQL = ROOT / "data" / "radar.sql"
 
 def cmd_scan(args: argparse.Namespace) -> int:
     conn = db.connect(Path(args.db))
-    result = scan.run_scan(conn, cc=args.cc, metadata_limit=args.metadata_limit)
+    result = scan.run_scan(
+        conn,
+        cc=args.cc,
+        metadata_limit=args.metadata_limit,
+        review_limit=args.review_limit,
+    )
     print(
         f"\nเก็บแล้ว {result['titles_seen']} เกม "
-        f"(รายละเอียดใหม่ {result['metadata_fetched']} ตัว) "
+        f"(รายละเอียดใหม่ {result['metadata_fetched']} · "
+        f"รีวิวใหม่ {result['reviews_fetched']}) "
         f"— รวมเก็บมาทั้งหมด {result['total_scans']} รอบ"
     )
     return 0
@@ -142,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
     def add_scan_args(sp: argparse.ArgumentParser) -> None:
         sp.add_argument("--cc", default="th", help="ประเทศสำหรับราคา (ค่าเริ่มต้น th)")
         sp.add_argument("--metadata-limit", type=int, default=250)
+        sp.add_argument("--review-limit", type=int, default=60,
+                        help="ดึงรีวิวสูงสุดกี่เกมต่อรอบ (แคช 7 วัน)")
 
     sp = sub.add_parser("scan", help="เก็บข้อมูลหนึ่งรอบ")
     add_scan_args(sp)

@@ -210,6 +210,15 @@ a.card:hover{border-color:var(--accent)}
         <option value="single">Single-player ล้วน</option>
       </select>
     </label>
+    <label>ชั่วโมงเล่น
+      <select id="fPlay">
+        <option value="all">ทั้งหมด</option>
+        <option value="short">สั้น ไม่เกิน 10 ชม.</option>
+        <option value="mid">10-40 ชม.</option>
+        <option value="long">เกิน 40 ชม.</option>
+        <option value="none">ยังไม่มีข้อมูล</option>
+      </select>
+    </label>
     <label>แนว <select id="fGenre"><option value="">ทั้งหมด</option></select></label>
     <label>ราคา
       <select id="fPrice">
@@ -361,6 +370,20 @@ function card(d) {
     stock = '<span class="delta down">คู่แข่งมี ' + d.stocked_total + ' ใบ</span>';
   if (d.stock_delta > 0) stock += ' <span class="delta up">+' + d.stock_delta + '</span>';
 
+  // ชั่วโมงเล่นบอกว่าควรตั้งแพ็กเช่ากี่วัน (แพลตฟอร์มขายเป็น 1/3/7 วัน)
+  if (d.playtime_median_h != null) {
+    const h = d.playtime_median_h;
+    const pack = h <= 10 ? 'เช่า 1 วันพอ' : h <= 40 ? 'เหมาะกับ 3 วัน' : 'ต้องเช่ายาว';
+    modes.push('<span class="chip" data-tip="ค่ากลางจากรีวิวล่าสุด ' +
+      (d.playtime_sample || 0) + ' คน' + NL + pack + '">เล่น ~' +
+      (h < 10 ? h.toFixed(1) : Math.round(h)) + ' ชม.</span>');
+  }
+  if (d.review_desc) {
+    const pct = d.review_ratio != null ? Math.round(d.review_ratio * 100) + '%' : '';
+    modes.push('<span class="chip" data-tip="' + esc(d.review_desc) + ' จาก ' +
+      nf.format(d.review_total || 0) + ' รีวิว">' + pct + ' ชอบ</span>');
+  }
+
   const disc = d.discount_percent > 0
     ? '<span class="off">-' + d.discount_percent + '%</span> ' : '';
   const b = BASIS[d.surge_basis] || ['—', ''];
@@ -400,6 +423,7 @@ function apply() {
   const fresh = document.getElementById('fFresh').value;
   const mode = document.getElementById('fMode').value;
   const genre = document.getElementById('fGenre').value;
+  const play = document.getElementById('fPlay').value;
   const price = document.getElementById('fPrice').value;
   const sort = document.getElementById('fSort').value;
 
@@ -415,6 +439,11 @@ function apply() {
     if (mode === 'multi' && !d.is_multi) return false;
     if (mode === 'coop' && !d.is_coop) return false;
     if (genre && !d.genres.includes(genre)) return false;
+    const ph = d.playtime_median_h;
+    if (play === 'short' && !(ph != null && ph <= 10)) return false;
+    if (play === 'mid' && !(ph != null && ph > 10 && ph <= 40)) return false;
+    if (play === 'long' && !(ph != null && ph > 40)) return false;
+    if (play === 'none' && ph != null) return false;
     const p = d.price_final;
     if (price === 'sweet' && !(p >= 10000 && p <= 60000)) return false;
     if (price === 'cheap' && !(p != null && p < 10000)) return false;
@@ -569,7 +598,7 @@ function setView(v) {
 document.getElementById('vCards').addEventListener('click', () => setView('cards'));
 document.getElementById('vRank').addEventListener('click', () => setView('rank'));
 
-['q', 'fOpp', 'fUnstocked', 'fFresh', 'fMode', 'fGenre', 'fPrice', 'fSort'].forEach(id =>
+['q', 'fOpp', 'fUnstocked', 'fFresh', 'fMode', 'fGenre', 'fPlay', 'fPrice', 'fSort'].forEach(id =>
   document.getElementById(id).addEventListener('input', apply));
 // ---------- dropdown ที่เราวาดเอง ----------
 // native <select> ใช้ popup ของ OS ซึ่งจัดสไตล์ไม่ได้ (ยืนยันแล้วว่าเป็นกล่องขาว

@@ -15,6 +15,11 @@
 
 4. **เคยตัดเกมที่ยังไม่วางขายทิ้ง** ทั้งที่มันคือของที่ยังไม่มีใครสต็อกได้เลย
    ตอนนี้กลายเป็นสถานะของตัวเอง ไม่ใช่ blocker
+
+**ข้อมูลรีวิว (จำนวนรีวิว สัดส่วนบวก ชั่วโมงเล่น) ยังไม่มีผลกับคะแนน** ตั้งใจให้
+เป็นข้อมูลประกอบก่อน เพราะยังไม่รู้ว่าเกมยาวเช่าออกดีกว่าหรือแย่กว่าเกมสั้น
+(Terraria 99 ชม. ตลาดสต็อก 24 ใบ · How to Fish 6 ชม. สต็อก 15 ใบ)
+ถ้าใส่เข้าสูตรตอนนี้ก็เป็นการเดาซ้ำรอยสามข้อข้างบน รอตัดสินด้วยตัวเลขจากตลาด
 """
 from __future__ import annotations
 
@@ -148,6 +153,11 @@ class Assessment:
     coop_topsellers_rank: int | None
     coop_upcoming_rank: int | None
     coop_new_rank: int | None
+    review_total: int | None
+    review_ratio: float | None
+    review_desc: str | None
+    playtime_median_h: float | None
+    playtime_sample: int | None
     stocked_total: int
     stocked_mine: int
     stock_delta: int
@@ -163,10 +173,25 @@ class Assessment:
         return None if self.price_final is None else self.price_final / 100
 
 
+# เพดานของตัวคูณการเติบโต — โตขึ้น 20 เท่าไม่ได้มีค่ามากกว่าโต 5 เท่าถึงสี่เท่า
+# ถ้าปล่อยให้เป็นเส้นตรงไม่มีเพดาน ตัวที่กระโดดแรงจะกลบทุกอย่างจนคะแนน
+# เทียบข้ามเกมไม่ได้ (How to Fish เคยได้ 59.5 ขณะที่อันดับสองได้ 16)
+GROWTH_CEILING = 3.0
+
+
+def _saturate(x: float, scale: float) -> float:
+    """แปลงค่าที่โตไม่มีขอบเขต ให้เป็นตัวคูณ 1..1+GROWTH_CEILING แบบอิ่มตัว
+
+    ยิ่งค่าสูงยิ่งเพิ่มทีละน้อย รักษาลำดับไว้ครบแต่ไม่ให้ค่าสุดโต่งกลืนตัวอื่น
+    """
+    return 1.0 + GROWTH_CEILING * (1.0 - math.exp(-max(x, 0.0) / scale))
+
+
 def _surge_from_history(ccu: int, hist: list[int]) -> tuple[float, float]:
     baseline = median(hist) if hist else ccu
     growth = ccu / baseline if baseline > 0 else 1.0
-    return growth, growth * math.log10(max(ccu, 10))
+    # โตเกินตัวเอง 1 เท่าคือจุดเริ่มนับ scale 2.0 หมายถึงโต 3 เท่าได้ราวครึ่งเพดาน
+    return growth, _saturate(growth - 1.0, 2.0) * math.log10(max(ccu, 10))
 
 
 def _surge_from_rank(
@@ -185,7 +210,9 @@ def _surge_from_rank(
     delta = last_week - rank
     if delta <= 0:
         return None, max(0.0, 1.0 + delta / 50) * size, "weekly_rank"
-    return None, (1.0 + delta / 25) * size, "weekly_rank"
+    # กระโดด 145 อันดับไม่ได้มีค่ามากกว่ากระโดด 40 อันดับถึงสามเท่าครึ่ง
+    # scale 40 หมายถึงกระโดด 40 อันดับได้ราวครึ่งเพดาน
+    return None, _saturate(delta, 40.0) * size, "weekly_rank"
 
 
 def freshness_boost(age_days: int | None, days_until: int | None,
@@ -425,6 +452,11 @@ def assess(
         coop_topsellers_rank=row["coop_topsellers_rank"],
         coop_upcoming_rank=row["coop_upcoming_rank"],
         coop_new_rank=row["coop_new_rank"],
+        review_total=row["review_total"],
+        review_ratio=row["review_ratio"],
+        review_desc=row["review_desc"],
+        playtime_median_h=row["playtime_median_h"],
+        playtime_sample=row["playtime_sample"],
         stocked_total=n_all,
         stocked_mine=n_mine,
         stock_delta=d,
