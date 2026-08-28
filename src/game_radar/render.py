@@ -523,15 +523,27 @@ function drawChart() {
     .sort((a, b) => b.ccu - a.ccu).slice(0, 8);
   if (!picked.length) { document.getElementById('chartpanel').hidden = true; return; }
 
-  hint.textContent = 'ดัชนีผู้เล่น เทียบจุดแรกที่เก็บได้ = 100 · ' + stamps.length +
-    ' จุดข้อมูล · เส้นที่พุ่งขึ้นคือเกมที่คนเล่นโตเร็วกว่าตัวมันเองเมื่อวาน';
+  hint.textContent = 'ดัชนีผู้เล่น เทียบค่ากลางของเกมนั้นเอง = 100 · ' + stamps.length +
+    ' จุดข้อมูล · แกนเวลาเว้นตามจริง · เส้นเหนือ 100 คือคนเล่นมากกว่าปกติของตัวมันเอง';
 
   const W = 900, H = 280, L = 46, R = 14, T = 14, B = 44;
-  const xs = t => L + (stamps.indexOf(t) / (stamps.length - 1)) * (W - L - R);
+  // แกน x เว้นตามเวลาจริง ไม่ใช่ลำดับที่ของ scan
+  // ตอนใช้ลำดับ สอง scan ที่ห่างกัน 1 นาที (20:18 กับ 20:19) กินพื้นที่เท่ากับ
+  // ช่วงที่ห่างกัน 4.5 ชม. ความชันของเส้นเลยสื่อความหมายไม่ได้เลย
+  const ms = t => Date.parse(t);
+  const t0 = ms(stamps[0]), tSpan = (ms(stamps[stamps.length - 1]) - t0) || 1;
+  const xs = t => L + ((ms(t) - t0) / tSpan) * (W - L - R);
+  // ฐาน 100 = ค่ากลางของเกมนั้นเอง ไม่ใช่จุดแรก
+  // จุดแรกที่เก็บได้บังเอิญตกตอน 20:18 = prime time เอเชีย = ใกล้ยอดของวัน
+  // ทุกเส้นเลยถูกเทียบกับพีคตัวเองแล้วจมใต้ 100 ตลอด ทั้งที่ไม่ได้ตกจริง
+  const med = arr => {
+    const v = [...arr].sort((a, b) => a - b), m = v.length >> 1;
+    return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  };
   const series = picked.map(d => {
-    const first = d.series[0][1] || 1;
+    const base = med(d.series.map(pt => pt[1]).filter(c => c > 0)) || 1;
     return { name: d.name, appid: d.appid,
-             pts: d.series.map(([t, c]) => [t, (c / first) * 100]) };
+             pts: d.series.map(([t, c]) => [t, (c / base) * 100]) };
   });
   const vals = series.flatMap(s => s.pts.map(p => p[1])).concat([100]);
   const lo = Math.min(...vals), hi = Math.max(...vals);
@@ -555,14 +567,19 @@ function drawChart() {
     'stroke-dasharray="3 3" opacity="0.35"/>';
 
   // แกนเวลา: ขีดที่ทุกจุดที่เก็บจริง แต่ติดป้ายแค่บางจุดไม่ให้ตัวหนังสือชนกัน
-  const every = Math.max(1, Math.ceil(stamps.length / 6));
+  // พอแกนเป็นเวลาจริง จะนับ "ทุก N จุด" ไม่ได้แล้ว เพราะจุดที่ห่างกันนาทีเดียว
+  // จะทับกันสนิท ต้องวัดเป็นระยะพิกเซลจริง และกันป้ายสุดท้าย (= ล่าสุด) ไว้เสมอ
+  const lastX = xs(stamps[stamps.length - 1]);
+  let labelX = -Infinity;
   stamps.forEach((t, i) => {
     const x = xs(t);
     svg += '<line x1="' + x.toFixed(1) + '" y1="' + T + '" x2="' + x.toFixed(1) +
       '" y2="' + (H - B) + '" stroke="currentColor" stroke-width="0.5" opacity="0.08"/>';
     svg += '<line x1="' + x.toFixed(1) + '" y1="' + (H - B) + '" x2="' + x.toFixed(1) +
       '" y2="' + (H - B + 4) + '" stroke="currentColor" stroke-width="0.5" opacity="0.35"/>';
-    if (i % every && i !== stamps.length - 1) return;
+    const isLast = i === stamps.length - 1;
+    if (!isLast && (x - labelX < 70 || lastX - x < 70)) return;
+    labelX = x;
     const [d1, d2] = fmtStamp(t);
     svg += '<text x="' + x.toFixed(1) + '" y="' + (H - B + 17) +
       '" font-size="11" fill="currentColor" opacity="0.65" text-anchor="middle">' +
