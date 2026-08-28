@@ -38,11 +38,18 @@ try {
     & $Uv run game-radar market
     if ($LASTEXITCODE -ne 0) { throw "เก็บข้อมูลตลาดไม่สำเร็จ" }
 
+    # ต้องสร้างหน้าเว็บใหม่ด้วย ไม่ใช่แค่เก็บข้อมูล
+    # เดิมสคริปต์นี้ push แต่ data/radar.sql หน้าเว็บเลยค้างอยู่ที่รอบ cloud
+    # ทั้งที่ข้อมูลตลาดใหม่เข้ามาแล้ว
+    Say "สร้างหน้า dashboard ใหม่"
+    & $Uv run game-radar dash --out (Join-Path $Project "docs\index.html")
+    if ($LASTEXITCODE -ne 0) { throw "สร้าง dashboard ไม่สำเร็จ" }
+
     Say "เขียนฐานข้อมูลกลับเป็นไฟล์ข้อความ"
     & $Uv run game-radar dump | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "dump ไม่สำเร็จ" }
 
-    git add data/radar.sql | Out-Null
+    git add data/radar.sql docs/index.html | Out-Null
     git diff --cached --quiet
     if ($LASTEXITCODE -eq 0) {
         Say "ข้อมูลไม่เปลี่ยน ไม่ต้อง commit"
@@ -50,7 +57,7 @@ try {
     }
 
     $stamp = Get-Date -Format "yyyy-MM-dd HH:mm"
-    git commit -q -m "ข้อมูลตลาด $stamp (จากเครื่องบ้าน)"
+    git commit -q -m "ข้อมูลตลาด + หน้าเว็บ $stamp (จากเครื่องบ้าน)"
     if ($LASTEXITCODE -ne 0) { throw "commit ไม่สำเร็จ" }
 
     if ($NoPush) {
