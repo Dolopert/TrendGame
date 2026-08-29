@@ -213,8 +213,17 @@ a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
   </div>
 
   <div class="panel" id="chartpanel">
-    <h2>ดัชนีผู้เล่นรายเกม</h2>
+    <div class="panelhead">
+      <h2>ดัชนีผู้เล่นรายเกม</h2>
+      <div class="ranges" id="cranges">
+        <button class="rangebtn" data-r="1d" aria-pressed="true">24hr</button>
+        <button class="rangebtn" data-r="7d" aria-pressed="false">7d</button>
+        <button class="rangebtn" data-r="30d" aria-pressed="false">30d</button>
+        <button class="rangebtn" data-r="all" aria-pressed="false">ทั้งหมด</button>
+      </div>
+    </div>
     <p id="charthint"></p>
+    <div id="chartpartial"></div>
     <div class="chartwrap" id="chart"></div>
     <div class="legend" id="legend"></div>
   </div>
@@ -643,22 +652,55 @@ document.querySelectorAll('#ranges .rangebtn').forEach(b => {
 const LINE_COLORS = ['#4ade80','#ff8a4c','#60a5fa','#c084fc',
                      '#22d3ee','#f472b6','#facc15','#94a3b8'];
 
-function drawChart() {
-  const pool = DATA.filter(d => d.series && d.series.length >= 2);
-  const stamps = [...new Set(pool.flatMap(d => d.series.map(p => p[0])))].sort();
-  const hint = document.getElementById('charthint');
+// ช่วงเวลาของกราฟเส้น — 24hr กับ 1d คือหน้าต่างเดียวกัน จึงมีปุ่มเดียวชื่อ 24hr
+// 'ทั้งหมด' ไว้ดูภาพรวมตั้งแต่วันแรกที่เก็บ ไม่ผูกกับจำนวนวัน
+const CHART_WINDOWS = { '1d': 1, '7d': 7, '30d': 30, 'all': null };
+const CHART_LABEL = { '1d': '24 ชั่วโมง', '7d': '7 วัน', '30d': '30 วัน', 'all': 'ทั้งหมด' };
+let chartRange = '1d';
 
-  if (stamps.length < 2) {
+function drawChart() {
+  const raw = DATA.filter(d => d.series && d.series.length >= 2);
+  const allStamps = [...new Set(raw.flatMap(d => d.series.map(p => p[0])))].sort();
+  const hint = document.getElementById('charthint');
+  const partial = document.getElementById('chartpartial');
+
+  if (allStamps.length < 2) {
     document.getElementById('chartpanel').hidden = true;
     return;
   }
+
+  // ตัดช่วงโดยนับถอยหลังจาก "จุดข้อมูลล่าสุด" ไม่ใช่จากเวลาปัจจุบัน
+  // ถ้าไม่ได้สแกนมาสองวัน หน้าต่าง 24hr ที่นับจาก now จะว่างทั้งที่มีข้อมูลอยู่
+  const days = CHART_WINDOWS[chartRange];
+  const newest = Date.parse(allStamps[allStamps.length - 1]);
+  const cut = days == null ? -Infinity : newest - days * 864e5;
+  // ต้องตัดที่ series ของแต่ละเกม ไม่ใช่แค่กรอง stamps รวม เพราะฐาน 100
+  // คิดจากค่ากลางของจุดที่พล็อตจริง ถ้าไม่ตัด ฐานจะยังอิงข้อมูลนอกช่วงที่เลือก
+  const pool = raw
+    .map(d => ({ ...d, series: d.series.filter(pt => Date.parse(pt[0]) >= cut) }))
+    .filter(d => d.series.length >= 2);
+  const stamps = allStamps.filter(t => Date.parse(t) >= cut);
+
+  if (pool.length === 0 || stamps.length < 2) {
+    document.getElementById('chartpanel').hidden = true;
+    return;
+  }
+  document.getElementById('chartpanel').hidden = false;
+
   const picked = pool
     .filter(d => d.opportunity_score > 0 || d.stocked_total > 0)
     .sort((a, b) => b.ccu - a.ccu).slice(0, 8);
   if (!picked.length) { document.getElementById('chartpanel').hidden = true; return; }
 
-  hint.textContent = 'เทียบค่ากลางของเกมนั้นเอง = 100 · แกนตั้งเป็น log ' +
+  hint.textContent = 'เทียบค่ากลางของเกมนั้นเองในช่วงที่เลือก = 100 · แกนตั้งเป็น log ' +
     '(200 กับ 50 ห่างจาก 100 เท่ากัน) · แกนเวลาเว้นตามจริง · ' + stamps.length + ' จุดข้อมูล';
+
+  // ช่วงที่เก็บข้อมูลจริงไม่ถึงที่ขอ ต้องบอกติดกราฟ ไม่งั้นจะนึกว่าเห็นครบ 30 วัน
+  const spanH = (Date.parse(stamps[stamps.length - 1]) - Date.parse(stamps[0])) / 36e5;
+  partial.innerHTML = (days != null && spanH < days * 24 * 0.9)
+    ? '<div class="partial">ยังเก็บข้อมูลไม่ครบ ' + CHART_LABEL[chartRange] +
+      ' — ที่มีจริงคือ ' + fmtSpan(spanH) + ' เส้นที่เห็นคือทั้งหมดที่มี</div>'
+    : '';
 
   const W = 900, H = 280, L = 46, R = 14, T = 14, B = 44;
   // แกน x เว้นตามเวลาจริง ไม่ใช่ลำดับที่ของ scan
@@ -750,6 +792,31 @@ function drawChart() {
       last.toFixed(0) + '</b></span>';
   }).join('');
 }
+
+// ปุ่มช่วงของกราฟเส้น — ช่วงไหนมีจุดข้อมูลไม่ถึงสองจุด ปิดปุ่มไปเลย
+// ดีกว่าปล่อยให้กดแล้วพาเนลหายไปทั้งอัน
+(function () {
+  const st = [...new Set(DATA.filter(d => d.series && d.series.length >= 2)
+    .flatMap(d => d.series.map(p => p[0])))].sort();
+  const newest = st.length ? Date.parse(st[st.length - 1]) : 0;
+  const btns = [...document.querySelectorAll('#cranges .rangebtn')];
+  const usable = r => {
+    const days = CHART_WINDOWS[r];
+    if (days == null) return st.length >= 2;
+    return st.filter(t => Date.parse(t) >= newest - days * 864e5).length >= 2;
+  };
+  chartRange = ['1d', '7d', '30d', 'all'].find(usable) || '1d';
+  btns.forEach(b => {
+    const r = b.dataset.r;
+    b.setAttribute('aria-pressed', String(r === chartRange));
+    if (!usable(r)) { b.disabled = true; b.title = 'ยังไม่มีข้อมูลในช่วงนี้'; return; }
+    b.addEventListener('click', () => {
+      chartRange = r;
+      btns.forEach(o => o.setAttribute('aria-pressed', String(o.dataset.r === r)));
+      drawChart();
+    });
+  });
+})();
 
 let view = 'cards';
 function setView(v) {
