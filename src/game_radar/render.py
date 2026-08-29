@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import db
@@ -168,7 +168,24 @@ h1{font-size:34px;font-weight:800;margin:8px 0 8px;letter-spacing:-.025em;
   letter-spacing:.18em;text-transform:uppercase}
 .panel p{margin:0 0 14px;color:var(--dim);font-size:12.5px}
 .chartwrap{width:100%}
-#chart text{font-family:var(--mono);letter-spacing:-.02em}
+#chart text,#bars text{font-family:var(--mono);letter-spacing:-.02em}
+/* หัวพาเนลกราฟแท่ง: ชื่อซ้าย ปุ่มช่วงเวลาขวา บรรทัดเดียวกัน */
+.panelhead{display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.panelhead h2{margin:0}
+.ranges{display:flex;gap:5px}
+.rangebtn{background:var(--chip);border:1px solid var(--line);color:var(--muted);
+  border-radius:9px;padding:5px 13px;font-size:12.5px;font-weight:700;
+  font-family:var(--mono);cursor:pointer;transition:.13s}
+.rangebtn:hover:not(:disabled){border-color:#454952;color:var(--fg)}
+.rangebtn[aria-pressed=true]{background:var(--accent);color:#08130c;
+  border-color:transparent}
+.rangebtn:disabled{opacity:.32;cursor:not-allowed}
+/* ป้ายเตือนว่าช่วงที่เลือกยังเก็บข้อมูลไม่ครบ — ต้องเห็นชัดติดกับกราฟ
+   ไม่ใช่ไปกองรวมกับ warn ด้านบนที่คนเลื่อนผ่าน */
+.partial{display:inline-block;background:var(--chip);color:var(--warm);
+  border:1px solid var(--line);border-left:3px solid var(--warm);
+  border-radius:8px;padding:5px 10px;font-size:12px;margin-bottom:10px}
 .legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:.75rem}
 .legend span{display:flex;align-items:center;gap:6px;color:var(--muted)}
 .legend i{width:11px;height:3px;border-radius:2px;display:inline-block}
@@ -205,8 +222,22 @@ a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
   <div id="warn"></div>
   <div class="stats" id="stats"></div>
 
+  <div class="panel" id="barpanel">
+    <div class="panelhead">
+      <h2>ผู้เล่นรวมตามเวลา</h2>
+      <div class="ranges" id="ranges">
+        <button class="rangebtn" data-r="1d" aria-pressed="true">1d</button>
+        <button class="rangebtn" data-r="7d" aria-pressed="false">7d</button>
+        <button class="rangebtn" data-r="30d" aria-pressed="false">30d</button>
+      </div>
+    </div>
+    <p id="barhint"></p>
+    <div id="barpartial"></div>
+    <div class="chartwrap" id="bars"></div>
+  </div>
+
   <div class="panel" id="chartpanel">
-    <h2>ผู้เล่นรวมตามเวลา</h2>
+    <h2>ดัชนีผู้เล่นรายเกม</h2>
     <p id="charthint"></p>
     <div class="chartwrap" id="chart"></div>
     <div class="legend" id="legend"></div>
@@ -277,6 +308,7 @@ a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
 const DATA = __DATA__;
 const META = __META__;
 const BASIS = __BASIS__;
+const TOTALS = __TOTALS__;
 
 const nf = new Intl.NumberFormat('th-TH');
 const esc = s => String(s).replace(/[&<>"]/g, c =>
@@ -532,6 +564,101 @@ function rankTable(rows) {
     '<th class="num">น่าซื้อ</th></tr></thead><tbody>' + body + '</tbody></table></div>';
 }
 
+// ---------- กราฟแท่ง: ผู้เล่นรวมตามเวลา (1d / 7d / 30d) ----------
+// พล็อตค่าดิบ ไม่ใช่ดัชนี เพราะเป็นตัวเลขเดียวกันทั้งกราฟ (ผลรวมของตะกร้าเกมชุดเดิม)
+// เทียบแท่งต่อแท่งได้ตรง ๆ อยู่แล้ว ไม่ต้องแปลงฐาน
+// แกนตั้งเริ่มที่ 0 เสมอ — กราฟแท่งที่ตัดฐานทิ้งจะโกหกสัดส่วนความสูง
+const RANGE_LABEL = { '1d': '24 ชั่วโมง', '7d': '7 วัน', '30d': '30 วัน' };
+// เริ่มที่ 1d แต่ถ้าช่วงนั้นยังมีไม่ถึงสองจุด ให้ตกไปช่วงแรกที่มีข้อมูลจริง
+let range = ['1d', '7d', '30d'].find(r => TOTALS[r]) || '1d';
+
+function drawBars() {
+  const panel = document.getElementById('barpanel');
+  const win = TOTALS[range];
+  if (!win || win.points.length < 2) { panel.hidden = true; return; }
+  panel.hidden = false;
+
+  const pts = win.points;
+  const hi = Math.max(...pts.map(p => p[1]));
+
+  document.getElementById('barhint').textContent =
+    'ผลรวมผู้เล่นพร้อมกันของเกมชุดเดียวกัน ' + nf.format(win.basket) + ' เกม ' +
+    'ที่เก็บได้ครบทุกรอบในช่วงนี้ · ' + pts.length + ' รอบสแกน · ' +
+    'ย้อนหลังจากรอบล่าสุด ไม่ใช่จากเวลาปัจจุบัน';
+
+  document.getElementById('barpartial').innerHTML = win.full ? '' :
+    '<div class="partial">ยังเก็บข้อมูลไม่ครบ ' + RANGE_LABEL[range] +
+    ' — ที่มีจริงคือ ' + fmtSpan(win.span_h) + ' แท่งที่เห็นคือทั้งหมดที่มี</div>';
+
+  const W = 900, H = 280, L = 58, R = 14, T = 14, B = 44;
+  const plotW = W - L - R, plotH = H - T - B;
+  // ความกว้างแท่งคิดจากจำนวนแท่ง ไม่ใช่จากเวลาจริง — ต่างจากกราฟเส้นด้านล่าง
+  // ที่ต้องเว้นตามเวลาเพราะความชันคือความหมาย ส่วนแท่งอ่านที่ความสูง
+  // ถ้าวางตามเวลาจริง สองรอบที่ห่างกันนาทีเดียวจะกลายเป็นแท่งบางเฉียบซ้อนกัน
+  const slot = plotW / pts.length;
+  const bw = Math.max(2, Math.min(46, slot * 0.66));
+  const ytop = hi * 1.08 || 1;
+  const ys = v => T + (1 - v / ytop) * plotH;
+
+  let svg = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H +
+    '" preserveAspectRatio="xMidYMid meet" style="display:block" ' +
+    'role="img" aria-label="ผู้เล่นรวมตามเวลา ช่วง ' + RANGE_LABEL[range] + '">';
+
+  // เส้นกริดแนวนอน 4 ระดับ ติดป้ายแบบย่อ (1.2M) ให้แกนไม่กินที่
+  for (let i = 0; i <= 4; i++) {
+    const v = (ytop / 4) * i, y = ys(v);
+    svg += '<line x1="' + L + '" y1="' + y.toFixed(1) + '" x2="' + (W - R) +
+      '" y2="' + y.toFixed(1) + '" stroke="currentColor" stroke-width="0.5" ' +
+      'opacity="' + (i === 0 ? '0.3' : '0.12') + '"/>';
+    svg += '<text x="' + (L - 8) + '" y="' + (y + 4).toFixed(1) + '" font-size="11" ' +
+      'fill="currentColor" opacity="0.45" text-anchor="end">' + short(v) + '</text>';
+  }
+
+  let labelX = -Infinity;
+  pts.forEach(([t, v], i) => {
+    const cx = L + slot * (i + 0.5);
+    const y = ys(v);
+    svg += '<rect x="' + (cx - bw / 2).toFixed(1) + '" y="' + y.toFixed(1) +
+      '" width="' + bw.toFixed(1) + '" height="' + Math.max(1, H - B - y).toFixed(1) +
+      '" rx="2" fill="var(--accent)" opacity="' +
+      (i === pts.length - 1 ? '1' : '0.62') + '"><title>' +
+      fmtStamp(t).join(' ') + ' · ' + nf.format(v) + ' คน</title></rect>';
+    // ป้ายเวลาเว้นตามระยะพิกเซล และกันป้ายแท่งสุดท้าย (= ล่าสุด) ไว้เสมอ
+    const isLast = i === pts.length - 1;
+    if (!isLast && (cx - labelX < 74 || (L + slot * (pts.length - 0.5)) - cx < 74)) return;
+    labelX = cx;
+    const [d1, d2] = fmtStamp(t);
+    svg += '<text x="' + cx.toFixed(1) + '" y="' + (H - B + 17) + '" font-size="11" ' +
+      'fill="currentColor" opacity="0.65" text-anchor="middle">' + d1 + '</text>';
+    svg += '<text x="' + cx.toFixed(1) + '" y="' + (H - B + 30) + '" font-size="10" ' +
+      'fill="currentColor" opacity="0.4" text-anchor="middle">' + d2 + '</text>';
+  });
+  svg += '</svg>';
+  document.getElementById('bars').innerHTML = svg;
+}
+
+function fmtSpan(h) {
+  return h < 48 ? h.toFixed(1) + ' ชั่วโมง' : (h / 24).toFixed(1) + ' วัน';
+}
+function short(v) {
+  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return Math.round(v / 1e3) + 'k';
+  return String(Math.round(v));
+}
+
+// ปุ่มช่วงที่ยังไม่มีข้อมูลเลย ปิดไปเลยดีกว่าปล่อยให้กดแล้วกราฟหาย
+document.querySelectorAll('#ranges .rangebtn').forEach(b => {
+  const r = b.dataset.r;
+  b.setAttribute('aria-pressed', String(r === range));
+  if (!TOTALS[r]) { b.disabled = true; b.title = 'ยังไม่มีข้อมูลในช่วงนี้'; return; }
+  b.addEventListener('click', () => {
+    range = r;
+    document.querySelectorAll('#ranges .rangebtn').forEach(o =>
+      o.setAttribute('aria-pressed', String(o.dataset.r === r)));
+    drawBars();
+  });
+});
+
 // ---------- กราฟเส้น: ดัชนีผู้เล่น ฐาน 100 ----------
 // ใช้ดัชนีแทนค่าดิบ เพราะเกมใหญ่กับเกมเล็กต่างกันหลักแสน ถ้าพล็อตค่าดิบ
 // เส้นของเกมเล็กจะแบนติดพื้นจนมองไม่เห็นว่ามันกำลังพุ่ง
@@ -780,10 +907,66 @@ document.addEventListener('click', e => {
   if (e.target.closest('.surge')) { e.preventDefault(); e.stopPropagation(); }
 });
 
+drawBars();
 drawChart();
 apply();
 </script>
 """
+
+
+# ---------- ผลรวมผู้เล่นตามเวลา สำหรับกราฟแท่งอันบนสุด ----------
+# สรุปฝั่ง Python ไม่ใช่ JS เพราะต้องอ่าน snapshot ทุกแถว (ไม่ใช่แค่ 40 จุดล่าสุด
+# ต่อเกมที่ฝังไปกับการ์ด) ช่วง 30 วันเลยต้องคำนวณตรงนี้
+WINDOWS = (("1d", 1), ("7d", 7), ("30d", 30))
+
+
+def totals_series(conn: sqlite3.Connection) -> dict[str, dict]:
+    """ผลรวม CCU ต่อรอบสแกน แยกตามช่วงเวลา 1d/7d/30d
+
+    ใช้ "ตะกร้าเกมเดียวกันทุกจุด" (intersection ของ appid ที่มีครบทุกรอบในช่วงนั้น)
+    ไม่ใช่ผลรวมของทุกเกมที่เจอในรอบนั้น ๆ เพราะจำนวนเกมต่อรอบไม่เท่ากัน
+    (รอบแรก ๆ ได้ 158 เกม รอบหลังได้ 319) ถ้าบวกดื้อ ๆ กราฟจะกระโดดเพราะ
+    "เก็บเกมได้เยอะขึ้น" ไม่ใช่เพราะ "คนเล่นเยอะขึ้น" ซึ่งอ่านผิดความหมายทั้งแท่ง
+
+    ช่วงเวลานับถอยหลังจาก "รอบสแกนล่าสุด" ไม่ใช่เวลาปัจจุบัน — ถ้าเครื่องไม่ได้รัน
+    มาสองวัน หน้าต่าง 1d ที่นับจากตอนนี้จะว่างเปล่าทั้งที่มีข้อมูลอยู่
+    """
+    by_stamp: dict[str, dict[int, int]] = {}
+    for r in conn.execute(
+        "SELECT taken_at, appid, ccu FROM snapshot WHERE ccu IS NOT NULL"
+    ):
+        by_stamp.setdefault(r["taken_at"], {})[r["appid"]] = r["ccu"]
+
+    stamps = sorted(by_stamp)
+    if len(stamps) < 2:
+        return {}
+
+    def at(s: str) -> datetime:
+        return datetime.fromisoformat(s)
+
+    latest = at(stamps[-1])
+    out: dict[str, dict] = {}
+    for key, days in WINDOWS:
+        cutoff = latest - timedelta(days=days)
+        sel = [s for s in stamps if at(s) >= cutoff]
+        if len(sel) < 2:
+            continue
+        basket: set[int] = set(by_stamp[sel[0]])
+        for s in sel[1:]:
+            basket &= set(by_stamp[s])
+        if not basket:
+            continue
+        span_h = (at(sel[-1]) - at(sel[0])).total_seconds() / 3600
+        out[key] = {
+            "points": [[s, sum(by_stamp[s][a] for a in basket)] for s in sel],
+            "basket": len(basket),
+            "span_h": round(span_h, 1),
+            # ครอบคลุมจริงไม่ถึงช่วงที่ขอ = ต้องขึ้นป้ายบอก ไม่งั้นคนอ่านจะนึกว่า
+            # เห็นครบ 30 วันแล้วทั้งที่เพิ่งเก็บมาวันเดียว
+            "full": span_h >= days * 24 * 0.9,
+            "days": days,
+        }
+    return out
 
 
 def build(conn: sqlite3.Connection, out_path: Path) -> dict[str, int]:
@@ -836,6 +1019,7 @@ def build(conn: sqlite3.Connection, out_path: Path) -> dict[str, int]:
         TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False))
         .replace("__META__", json.dumps(meta, ensure_ascii=False))
         .replace("__BASIS__", json.dumps(BASIS_LABEL, ensure_ascii=False))
+        .replace("__TOTALS__", json.dumps(totals_series(conn), ensure_ascii=False))
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
