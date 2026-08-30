@@ -235,6 +235,46 @@ table.rank a:hover{text-decoration:underline}
 .rthumb{width:72px;height:34px;object-fit:cover;border-radius:4px;display:block}
 a.card{text-decoration:none;color:inherit}
 a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
+/* แผงรายละเอียด: เลื่อนจากขวา ไม่ใช่ modal กลางจอ เพราะยังเห็นการ์ดอื่นค้างอยู่
+   ข้างหลัง กดดูทีละเกมต่อกันได้เร็ว และบนมือถือกลายเป็นเต็มจอเองโดยไม่ต้องเขียนเพิ่ม */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:80;opacity:0;
+  pointer-events:none;transition:opacity .18s}
+.scrim.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(580px,100vw);z-index:85;
+  background:var(--panel);border-left:1px solid var(--line);
+  transform:translateX(100%);transition:transform .22s cubic-bezier(.4,0,.2,1);
+  overflow-y:auto;overscroll-behavior:contain}
+.drawer.open{transform:none}
+@media(max-width:640px){.drawer{width:100vw;border-left:0}}
+.dhead{position:relative}
+.dhead img{width:100%;aspect-ratio:460/215;object-fit:cover;display:block}
+.dclose{position:absolute;top:12px;right:12px;width:34px;height:34px;
+  border-radius:10px;border:1px solid var(--line);background:rgba(0,0,0,.72);
+  color:#fff;font-size:17px;line-height:1;cursor:pointer;font-family:inherit}
+.dclose:hover{border-color:#454952}
+.dbody{padding:18px 20px 34px;display:flex;flex-direction:column;gap:20px}
+.dtitle{font-size:20px;font-weight:750;letter-spacing:-.02em;margin:0}
+.dsec h4{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 9px}
+.dsec{border-top:1px solid var(--line);padding-top:16px}
+.dsec:first-of-type{border-top:0;padding-top:0}
+.dscore{display:flex;align-items:baseline;gap:10px}
+.dscore b{font-size:34px;font-weight:800;font-family:var(--mono);letter-spacing:-.03em}
+.dsteps{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:10px}
+.dsteps td{padding:5px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.dsteps tr:last-child td{border-bottom:0}
+.dsteps .op{color:var(--dim);font-family:var(--mono);width:22px}
+.dsteps .val{font-family:var(--mono);font-weight:700;text-align:right;
+  white-space:nowrap;padding-left:10px}
+.dsteps .why{color:var(--dim);font-size:.76rem}
+.dkv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:.84rem}
+.dkv dt{color:var(--dim)}
+.dkv dd{margin:0;font-family:var(--mono);letter-spacing:-.02em}
+.dnote{font-size:.8rem;color:var(--muted);display:flex;flex-direction:column;gap:5px}
+.dbtn{display:block;text-align:center;background:var(--accent);color:#08130c;
+  border-radius:10px;padding:11px;font-weight:700;font-size:13.5px;
+  text-decoration:none}
+.dbtn:hover{filter:brightness(1.08)}
 .warn{background:var(--chip);border:1px solid var(--line);
   border-left:3px solid var(--warm);
   border-radius:12px;padding:13px 15px;margin-bottom:20px;font-size:.84rem}
@@ -351,6 +391,8 @@ a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
   </div>
 
   <div class="grid" id="grid"></div>
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-hidden="true"></aside>
   <div id="ranktable" hidden></div>
   <div class="empty" id="empty" hidden>ไม่มีเกมที่ตรงเงื่อนไข</div>
 </div>
@@ -511,7 +553,10 @@ function card(d) {
   const price = d.status === 'upcoming' && d.price_final == null
     ? 'ยังไม่ประกาศราคา' : (d.is_free ? 'ฟรี' : baht(d.price_final));
 
+  // ยังเป็น <a> ที่ชี้ไป Steam อยู่ เพื่อให้คลิกกลาง/ctrl-คลิกเปิดแท็บใหม่ได้ตามปกติ
+  // ส่วนคลิกซ้ายธรรมดาถูกดักไปเปิดแผงรายละเอียดแทน (ดู handler ท้ายไฟล์)
   return '<a class="card' + (d.opportunity_score > 0 ? '' : ' dim') + '" ' +
+    'data-appid="' + d.appid + '" ' +
     'href="' + steamUrl(d.appid) + '" target="_blank" rel="noopener">' +
     '<div class="thumb">' +
     (d.header_image ? '<img loading="lazy" src="' + esc(d.header_image) + '" alt="">' : '') +
@@ -1074,9 +1119,156 @@ document.addEventListener('mouseout', e => {
   tipTarget = null;
   tip.style.display = 'none';
 });
-// กันไม่ให้การคลิกอ่านคะแนนพาไปหน้า Steam
+// ---------- แผงรายละเอียด ----------
+// ข้อมูลลึกเคยอยู่แต่ใน tooltip ซึ่งต้องเอาเมาส์ชี้ = บนมือถือเข้าไม่ถึงเลย
+// และบันทึกก็ถูกตัดเหลือ 3 บรรทัดบนการ์ด ที่เหลือหายเงียบ ที่นี่แสดงครบ
+const scrim = document.getElementById('scrim');
+const drawer = document.getElementById('drawer');
+
+// กราฟผู้เล่นของเกมเดียว — ใช้ CCU ดิบได้เพราะไม่ได้เอาไปเทียบข้ามเกม
+// แกน x เว้นตามเวลาจริงและใช้เส้นโค้ง monotone เหมือนกราฟใหญ่
+function gameChart(pts) {
+  if (!pts || pts.length < 2) {
+    return '<div class="dnote">ยังมีจุดข้อมูลไม่พอวาดกราฟ</div>';
+  }
+  const W = 520, H = 150, L = 8, R = 8, T = 12, B = 26;
+  const ms = t => Date.parse(t);
+  const t0 = ms(pts[0][0]), span = (ms(pts[pts.length - 1][0]) - t0) || 1;
+  const vals = pts.map(p => p[1]);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.12 || Math.max(hi * 0.08, 1);
+  const y0 = lo - pad, y1 = hi + pad;
+  const xs = t => L + ((ms(t) - t0) / span) * (W - L - R);
+  const ys = v => T + (1 - (v - y0) / (y1 - y0 || 1)) * (H - T - B);
+  const xy = pts.map(([t, v]) => [xs(t), ys(v)]);
+  const a = fmtStamp(pts[0][0]), b = fmtStamp(pts[pts.length - 1][0]);
+  return '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" ' +
+    'preserveAspectRatio="xMidYMid meet" style="display:block" ' +
+    'role="img" aria-label="ผู้เล่นตามเวลา">' +
+    '<path d="' + monotonePath(xy) + '" fill="none" stroke="var(--accent)" ' +
+    'stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+    '<text x="' + L + '" y="' + (H - 8) + '" font-size="10" fill="currentColor" ' +
+    'opacity="0.5">' + a[0] + ' ' + a[1] + '</text>' +
+    '<text x="' + (W - R) + '" y="' + (H - 8) + '" font-size="10" text-anchor="end" ' +
+    'fill="currentColor" opacity="0.5">' + b[0] + ' ' + b[1] + '</text>' +
+    '<text x="' + L + '" y="' + (T + 2) + '" font-size="10" fill="currentColor" ' +
+    'opacity="0.5">สูงสุด ' + nf.format(hi) + '</text>' +
+    '<text x="' + (W - R) + '" y="' + (T + 2) + '" font-size="10" text-anchor="end" ' +
+    'fill="currentColor" opacity="0.5">ต่ำสุด ' + nf.format(lo) + '</text>' +
+    '</svg>';
+}
+
+function drawerSteps(d) {
+  const p = d.score_parts || {};
+  if (!p.steps || !p.steps.length) {
+    return '<div class="dnote">คะแนน 0 — ' + esc(p.reason || 'ไม่เข้าเกณฑ์') + '</div>';
+  }
+  return '<table class="dsteps">' + p.steps.map(([name, val, why], i) =>
+    '<tr><td class="op">' + (i === 0 ? '' : '&times;') + '</td>' +
+    '<td>' + esc(name) + '<div class="why">' + esc(why || '') + '</div></td>' +
+    '<td class="val">' + val + '</td></tr>').join('') + '</table>';
+}
+
+function kvList(rows) {
+  return '<dl class="dkv">' + rows.map(r =>
+    '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>').join('') + '</dl>';
+}
+
+function openDrawer(appid) {
+  const d = DATA.find(x => x.appid === appid);
+  if (!d) return;
+  const price = d.status === 'upcoming' && d.price_final == null
+    ? 'ยังไม่ประกาศราคา' : (d.is_free ? 'ฟรี' : baht(d.price_final));
+  const k = d.decay;
+  const h = d.playtime_median_h;
+  const pack = h == null ? null
+    : (h <= 10 ? 'เช่า 1 วันพอ' : h <= 40 ? 'เหมาะกับแพ็ก 3 วัน' : 'ต้องเช่ายาว');
+
+  const kv = [['ราคา', price]];
+  if (d.ccu != null) kv.push(['คนเล่นตอนนี้', nf.format(d.ccu)]);
+  if (d.played_rank) kv.push(['อันดับ Steam', '#' + d.played_rank +
+    (d.rank_delta ? ' (' + (d.rank_delta > 0 ? '+' : '') + d.rank_delta +
+      ' จากสัปดาห์ก่อน)' : '')]);
+  if (d.release_date) kv.push(['วางขาย', esc(d.release_date)]);
+  if (d.review_ratio != null && d.review_total > 0) {
+    kv.push(['รีวิว', Math.round(d.review_ratio * 100) + '% ชอบ · ' +
+      nf.format(d.review_total) + ' รีวิว']);
+  }
+  if (h != null) {
+    kv.push(['ชั่วโมงเล่น', '~' + (h < 10 ? h.toFixed(1) : Math.round(h)) +
+      ' ชม. → ' + pack]);
+  }
+  if (d.rev_per_day != null) {
+    kv.push(['รีวิวใหม่/วัน', nf.format(Math.round(d.rev_per_day))]);
+  }
+
+  const market = [['คู่แข่งสต็อก', d.stocked_total + ' ใบ'],
+    ['ของเรา', d.stocked_mine + ' ใบ' + (d.stocked_total
+      ? ' (' + Math.round(d.stocked_mine / d.stocked_total * 100) + '% ของตลาด)' : '')]];
+  if (d.stock_delta > 0) market.push(['เพิ่งเพิ่ม', '+' + d.stock_delta + ' ใบ']);
+
+  drawer.innerHTML =
+    '<div class="dhead">' +
+      (d.header_image ? '<img src="' + esc(d.header_image) + '" alt="">' : '') +
+      '<button class="dclose" id="dclose" aria-label="ปิด">&times;</button>' +
+    '</div>' +
+    '<div class="dbody">' +
+      '<h3 class="dtitle">' + esc(d.name) + '</h3>' +
+
+      '<div class="dsec"><h4>คะแนนน่าซื้อ</h4>' +
+        '<div class="dscore"><b class="' + scoreClass(d.opportunity_score) + '">' +
+        d.opportunity_score.toFixed(1) + '</b>' +
+        '<span class="dnote">ฐาน: ' + esc((BASIS[d.surge_basis] || ['—'])[0]) +
+        '</span></div>' + drawerSteps(d) + '</div>' +
+
+      '<div class="dsec"><h4>ผู้เล่นตามเวลา</h4>' + gameChart(d.series) + '</div>' +
+
+      (k ? '<div class="dsec"><h4>แนวโน้มรายวัน</h4>' +
+        '<div class="dnote">เทียบที่เวลาราว ' + Math.round(k.hour) + ':00 น. ของ ' +
+        k.days + ' วัน — <b class="' + (k.per_day < 0 ? 'tfall' : 'trise') + '">' +
+        pct(k.per_day) + ' ต่อวัน</b> (รวม ' + pct(k.pct) + ')</div>' +
+        kvList(k.points.map(q => [q[0].slice(8, 10) + '/' + q[0].slice(5, 7),
+          nf.format(q[1])])) + '</div>' : '') +
+
+      '<div class="dsec"><h4>ข้อมูลเกม</h4>' + kvList(kv) + '</div>' +
+      '<div class="dsec"><h4>ตลาดเช่า</h4>' + kvList(market) + '</div>' +
+
+      ((d.notes.length || d.blockers.length) ?
+        '<div class="dsec"><h4>บันทึก</h4><div class="dnote">' +
+        d.blockers.map(x => '<div class="blocked">&#9888; ' + esc(x) + '</div>').join('') +
+        d.notes.map(x => '<div>&middot; ' + esc(x) + '</div>').join('') +
+        '</div></div>' : '') +
+
+      '<a class="dbtn" href="' + steamUrl(d.appid) + '" target="_blank" ' +
+      'rel="noopener">เปิดหน้า Steam &#8599;</a>' +
+    '</div>';
+
+  drawer.classList.add('open');
+  drawer.setAttribute('aria-hidden', 'false');
+  scrim.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  drawer.scrollTop = 0;
+  document.getElementById('dclose').addEventListener('click', closeDrawer);
+}
+
+function closeDrawer() {
+  drawer.classList.remove('open');
+  drawer.setAttribute('aria-hidden', 'true');
+  scrim.classList.remove('open');
+  document.body.style.overflow = '';
+}
+scrim.addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
 document.addEventListener('click', e => {
-  if (e.target.closest('.surge')) { e.preventDefault(); e.stopPropagation(); }
+  // กันไม่ให้การคลิกอ่านคะแนนพาไปหน้า Steam
+  if (e.target.closest('.surge')) { e.preventDefault(); e.stopPropagation(); return; }
+  const card = e.target.closest('a.card');
+  if (!card) return;
+  // ปล่อยให้ ctrl/cmd/shift/คลิกกลาง เปิดแท็บ Steam ตามพฤติกรรมลิงก์ปกติ
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+  e.preventDefault();
+  openDrawer(Number(card.dataset.appid));
 });
 
 // ---------- หน้า "แนวโน้มรายวัน" ----------
