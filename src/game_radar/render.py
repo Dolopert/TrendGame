@@ -58,10 +58,15 @@ TEMPLATE = r"""<meta charset="utf-8">
   --accent:#4ade80; --ok:#4ade80; --warm:#ff8a4c; --hot:#ff8a4c; --cool:#9a9ea7;
   --font:Kanit,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
     "Noto Sans Thai",Arial,sans-serif;
-  /* ตัวเลขยังใช้ mono ต่อ — Kanit ไม่ใช่ฟอนต์ความกว้างคงที่ ถ้าเอามาใส่คอลัมน์
-     ตัวเลขในตาราง หลักจะไม่ตรงกัน กวาดสายตาเทียบค่าไม่ได้ ซึ่งเป็นงานหลัก
-     ของหน้านี้ ฟอนต์จึงแบ่งหน้าที่: Kanit = ข้อความ · mono = ตัวเลข */
-  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  /* ตัวเลขใช้ Kanit เหมือนข้อความ (เจ้าของเลือกเอง)
+     ข้อแลกเปลี่ยนที่ต้องรู้: Kanit **ไม่มีฟีเจอร์ tnum** และความกว้างเลขต่างกันมาก
+     (เลข 1 กว้าง 319 หน่วย · เลข 0 กว้าง 651 = ต่างกันเท่าตัว)
+     ตัวเลขในคอลัมน์จึงไม่ตรงหลักกัน — `font-variant-numeric:tabular-nums`
+     ใส่ไปก็ไม่มีผล เพราะฟอนต์ไม่มีฟีเจอร์นั้นให้เปิด
+     บรรเทาด้วยการชิดขวาทุกคอลัมน์ตัวเลข (`.num`) อย่างน้อยหลักหน่วยตรงกัน
+     ถ้าวันหนึ่งอ่านตารางแล้วรู้สึกเวียน ให้กลับไปใช้
+     ui-monospace,"SF Mono",Menlo,Consolas,monospace */
+  --num:Kanit,ui-monospace,"SF Mono",Consolas,monospace;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font);
@@ -78,7 +83,7 @@ h1{font-size:34px;font-weight:800;margin:8px 0 8px;letter-spacing:-.025em;
 .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;
   padding:11px 16px;min-width:112px}
 .stat b{display:block;font-size:19px;font-weight:750;line-height:1.25;
-  font-family:var(--mono);letter-spacing:-.02em}
+  font-family:var(--num);letter-spacing:-.02em}
 .stat span{color:var(--dim);font-size:10px;font-weight:700;
   letter-spacing:.08em;text-transform:uppercase}
 .bar{background:var(--panel);border:1px solid var(--line);border-radius:16px;
@@ -145,10 +150,10 @@ h1{font-size:34px;font-weight:800;margin:8px 0 8px;letter-spacing:-.025em;
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .rankbadge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.78);
   color:#fff;border-radius:8px;padding:3px 8px;font-size:.72rem;font-weight:600;
-  font-family:var(--mono)}
+  font-family:var(--num)}
 .pricebadge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.78);
   color:#fff;border-radius:8px;padding:3px 8px;font-size:.75rem;font-weight:600;
-  font-family:var(--mono)}
+  font-family:var(--num)}
 .pricebadge .off{color:#a3e635}
 .body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:9px;flex:1}
 .name{font-weight:650;font-size:.98rem;letter-spacing:-.01em}
@@ -160,7 +165,7 @@ h1{font-size:34px;font-weight:800;margin:8px 0 8px;letter-spacing:-.025em;
 .chip.pvp{color:var(--warm)}
 .metrics{display:flex;gap:14px;align-items:flex-end;margin-top:auto}
 .ccu b{font-size:1.15rem;display:block;line-height:1.15;
-  font-family:var(--mono);font-weight:700;letter-spacing:-.02em}
+  font-family:var(--num);font-weight:700;letter-spacing:-.02em}
 .ccu span{font-size:.7rem;color:var(--muted)}
 .delta{font-size:.78rem;font-weight:600}
 .up{color:var(--ok)} .down{color:var(--muted)} .new{color:var(--hot)}
@@ -170,7 +175,7 @@ h1{font-size:34px;font-weight:800;margin:8px 0 8px;letter-spacing:-.025em;
 /* "น่าซื้อ" คือตัวเลขเดียวบนการ์ดที่ใช้ตัดสินใจ จึงต้องเด่นกว่าทุกอย่าง
    ทำเป็น badge พื้นอ่อนให้เด้งออกจากพื้นมืด — ส่วนคะแนนรีวิวคงเป็น chip ธรรมดา
    เพราะมันไม่ได้อยู่ในสูตร ถ้าไปเน้นด้วยจะแย่งความหมายกัน */
-.score{font-weight:750;font-size:1.15rem;font-family:var(--mono);
+.score{font-weight:750;font-size:1.15rem;font-family:var(--num);
   letter-spacing:-.03em;background:var(--chip);border-radius:8px;
   padding:2px 9px;line-height:1.35;display:inline-block}
 .slabel{font-weight:700;letter-spacing:.04em}
@@ -196,7 +201,7 @@ h1{font-size:34px;font-weight:800;margin:8px 0 8px;letter-spacing:-.025em;
   letter-spacing:.18em;text-transform:uppercase}
 .panel p{margin:0 0 14px;color:var(--dim);font-size:12.5px}
 .chartwrap{width:100%}
-#chart text,#bars text{font-family:var(--mono);letter-spacing:-.02em}
+#chart text,#bars text{font-family:var(--num);letter-spacing:-.02em}
 /* หัวพาเนลกราฟแท่ง: ชื่อซ้าย ปุ่มช่วงเวลาขวา บรรทัดเดียวกัน */
 .panelhead{display:flex;align-items:center;justify-content:space-between;
   gap:12px;flex-wrap:wrap;margin-bottom:6px}
@@ -230,7 +235,7 @@ table.trend a:hover{text-decoration:underline}
 .ranges{display:flex;gap:5px}
 .rangebtn{background:var(--chip);border:1px solid var(--line);color:var(--muted);
   border-radius:9px;padding:5px 13px;font-size:12.5px;font-weight:700;
-  font-family:var(--mono);cursor:pointer;transition:.13s}
+  font-family:var(--num);cursor:pointer;transition:.13s}
 .rangebtn:hover:not(:disabled){border-color:#454952;color:var(--fg)}
 .rangebtn[aria-pressed=true]{background:var(--accent);color:#08130c;
   border-color:transparent}
@@ -250,9 +255,12 @@ table.rank td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-alig
 table.rank tr:last-child td{border-bottom:none}
 table.rank a{color:inherit;text-decoration:none}
 table.rank a:hover{text-decoration:underline}
-.num{text-align:right;font-family:var(--mono);letter-spacing:-.02em;
+.num{text-align:right;font-family:var(--num);letter-spacing:-.02em;
   white-space:nowrap}
-.pos{color:var(--dim);font-family:var(--mono);width:38px}
+/* หัวคอลัมน์ต้องชิดข้างเดียวกับค่าในคอลัมน์ ไม่งั้นหัวลอยไปคนละฝั่งกับตัวเลข
+   (กฎ th{text-align:left} ทับ .num อยู่ เพราะเจาะจงกว่า) */
+table.rank th.num,table.trend th.num{text-align:right}
+.pos{color:var(--dim);font-family:var(--num);width:38px}
 .rthumb{width:72px;height:34px;object-fit:cover;border-radius:4px;display:block}
 a.card{text-decoration:none;color:inherit}
 a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
@@ -280,17 +288,17 @@ a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
 .dsec{border-top:1px solid var(--line);padding-top:16px}
 .dsec:first-of-type{border-top:0;padding-top:0}
 .dscore{display:flex;align-items:baseline;gap:10px}
-.dscore b{font-size:34px;font-weight:800;font-family:var(--mono);letter-spacing:-.03em}
+.dscore b{font-size:34px;font-weight:800;font-family:var(--num);letter-spacing:-.03em}
 .dsteps{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:10px}
 .dsteps td{padding:5px 0;border-bottom:1px solid var(--line);vertical-align:top}
 .dsteps tr:last-child td{border-bottom:0}
-.dsteps .op{color:var(--dim);font-family:var(--mono);width:22px}
-.dsteps .val{font-family:var(--mono);font-weight:700;text-align:right;
+.dsteps .op{color:var(--dim);font-family:var(--num);width:22px}
+.dsteps .val{font-family:var(--num);font-weight:700;text-align:right;
   white-space:nowrap;padding-left:10px}
 .dsteps .why{color:var(--dim);font-size:.76rem}
 .dkv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:.84rem}
 .dkv dt{color:var(--dim)}
-.dkv dd{margin:0;font-family:var(--mono);letter-spacing:-.02em}
+.dkv dd{margin:0;font-family:var(--num);letter-spacing:-.02em}
 .dnote{font-size:.8rem;color:var(--muted);display:flex;flex-direction:column;gap:5px}
 .dbtn{display:block;text-align:center;background:var(--accent);color:#08130c;
   border-radius:10px;padding:11px;font-weight:700;font-size:13.5px;
@@ -983,7 +991,7 @@ function drawChart() {
     return '<span data-tip="' + tip + '"><i style="background:' + col + '"></i>' +
       '<a href="' + steamUrl(s.appid) + '" target="_blank" rel="noopener" ' +
       'style="color:inherit;text-decoration:none">' + esc(s.name) + '</a> ' +
-      '<b style="font-family:var(--mono);font-weight:700;color:' + col + '">' +
+      '<b style="font-family:var(--num);font-weight:700;color:' + col + '">' +
       last.toFixed(0) + '</b></span>';
   }).join('');
 }
