@@ -144,12 +144,19 @@ h1{font-size:34px;font-weight:800;margin:8px 0 8px;letter-spacing:-.025em;
 .delta{font-size:.78rem;font-weight:600}
 .up{color:var(--ok)} .down{color:var(--muted)} .new{color:var(--hot)}
 .spark{margin-left:auto}
-.surge{display:flex;align-items:center;gap:7px;font-size:.75rem;color:var(--muted);
-  border-top:1px solid var(--line);padding-top:9px}
-.score{font-weight:750;font-size:1rem;font-family:var(--mono);
-  letter-spacing:-.02em}
+.surge{display:flex;align-items:center;gap:8px;font-size:.75rem;color:var(--muted);
+  border-top:1px solid var(--line);padding-top:10px}
+/* "น่าซื้อ" คือตัวเลขเดียวบนการ์ดที่ใช้ตัดสินใจ จึงต้องเด่นกว่าทุกอย่าง
+   ทำเป็น badge พื้นอ่อนให้เด้งออกจากพื้นมืด — ส่วนคะแนนรีวิวคงเป็น chip ธรรมดา
+   เพราะมันไม่ได้อยู่ในสูตร ถ้าไปเน้นด้วยจะแย่งความหมายกัน */
+.score{font-weight:750;font-size:1.15rem;font-family:var(--mono);
+  letter-spacing:-.03em;background:var(--chip);border-radius:8px;
+  padding:2px 9px;line-height:1.35;display:inline-block}
+.slabel{font-weight:700;letter-spacing:.04em}
 /* สามระดับด้วยน้ำหนักสี ไม่ใช่สามสี — ส้มคือ "ร้อนพอให้หยุดดู" เท่านั้น */
-.s-hot{color:var(--warm)} .s-warm{color:var(--fg)} .s-mild{color:var(--dim)}
+.s-hot{color:var(--warm);background:rgba(255,138,76,.13)}
+.s-warm{color:var(--fg)}
+.s-mild{color:var(--dim)}
 .basis{background:var(--chip);border-radius:6px;padding:2px 8px;font-size:.68rem;
   color:var(--dim)}
 .notes{font-size:.73rem;color:var(--dim);display:flex;flex-direction:column;gap:3px}
@@ -213,7 +220,7 @@ table.trend a:hover{text-decoration:underline}
   border:1px solid var(--line);border-left:3px solid var(--warm);
   border-radius:8px;padding:5px 10px;font-size:12px;margin-bottom:10px}
 .legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:.75rem}
-.legend span{display:flex;align-items:center;gap:6px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:6px;color:var(--muted);cursor:default}
 .legend i{width:11px;height:3px;border-radius:2px;display:inline-block}
 table.rank{width:100%;border-collapse:collapse;font-size:.85rem}
 table.rank th{text-align:left;font-weight:500;color:var(--muted);font-size:.75rem;
@@ -483,10 +490,15 @@ function card(d) {
       (d.playtime_sample || 0) + ' คน' + NL + pack + '">เล่น ~' +
       (h < 10 ? h.toFixed(1) : Math.round(h)) + ' ชม.</span>');
   }
-  if (d.review_desc) {
-    const pct = d.review_ratio != null ? Math.round(d.review_ratio * 100) + '%' : '';
-    modes.push('<span class="chip" data-tip="' + esc(d.review_desc) + ' จาก ' +
-      nf.format(d.review_total || 0) + ' รีวิว">' + pct + ' ชอบ</span>');
+  // ต้องมีรีวิวจริงถึงจะขึ้นป้าย — เดิมเช็คแค่ review_desc ซึ่ง 'No user reviews'
+  // ก็ผ่าน แล้วได้ป้าย " ชอบ" ลอยไม่มีตัวเลขบน 121 การ์ด
+  // เกมที่ยังไม่มีรีวิวให้ซ่อนไปเลย ไม่ใส่ป้าย "ยังไม่มีคะแนน" เพราะการ์ดแน่นอยู่แล้ว
+  // และป้ายที่ไม่ให้ข้อมูลอะไรคือขยะ ไม่ใช่ความสมบูรณ์
+  if (d.review_ratio != null && d.review_total > 0) {
+    modes.push('<span class="chip" data-tip="' + esc(d.review_desc || '') + ' จาก ' +
+      nf.format(d.review_total) + ' รีวิว' + NL +
+      'คะแนนรีวิวไม่ได้อยู่ในสูตรคะแนนน่าซื้อ เป็นข้อมูลประกอบ">👍 ' +
+      Math.round(d.review_ratio * 100) + '%</span>');
   }
 
   const disc = d.discount_percent > 0
@@ -514,7 +526,7 @@ function card(d) {
     '</b><span>คนเล่นตอนนี้</span></div>' + stock + spark(d.history) + '</div>' +
     '<div class="surge"><span class="score ' + scoreClass(d.opportunity_score) +
     '" data-tip="' + esc(breakdown(d)) + '">' + d.opportunity_score.toFixed(1) +
-    '</span><span data-tip="' + esc(breakdown(d)) + '">น่าซื้อ</span>' +
+    '</span><span class="slabel" data-tip="' + esc(breakdown(d)) + '">น่าซื้อ</span>' +
     '<span class="basis" data-tip="คะแนนกระแสดิบ' + NL + 'ฐาน: ' + esc(b[0]) + ' — ' + esc(b[1]) + '">' +
     'กระแส ' + d.surge_score.toFixed(1) + '</span></div>' +
     (notes ? '<div class="notes">' + notes + '</div>' : '') +
@@ -844,10 +856,18 @@ function drawChart() {
   document.getElementById('chart').innerHTML = svg;
   document.getElementById('legend').innerHTML = series.map((s, i) => {
     const last = s.pts[s.pts.length - 1][1];
-    return '<span><i style="background:' + LINE_COLORS[i % LINE_COLORS.length] + '"></i>' +
+    const col = LINE_COLORS[i % LINE_COLORS.length];
+    // ตัวเลขท้ายชื่อเคยเป็นสีขาวเหมือนกันหมด อ่านเผิน ๆ นึกว่าเป็นคะแนนรีวิว
+    // หรือจำนวนผู้เล่น ย้อมสีตามเส้นและติด tooltip บอกให้ชัดว่าคืออะไร
+    const tip = esc(s.name) + NL + 'ดัชนีผู้เล่น ' + last.toFixed(0) +
+      ' (100 = ระดับปกติของเกมนี้เอง)' + NL +
+      (last >= 100 ? 'ตอนนี้คนเล่นมากกว่าปกติ ' + (last - 100).toFixed(0) + '%'
+                   : 'ตอนนี้คนเล่นน้อยกว่าปกติ ' + (100 - last).toFixed(0) + '%') +
+      NL + 'ไม่ใช่คะแนนรีวิว และไม่ใช่จำนวนผู้เล่น';
+    return '<span data-tip="' + tip + '"><i style="background:' + col + '"></i>' +
       '<a href="' + steamUrl(s.appid) + '" target="_blank" rel="noopener" ' +
       'style="color:inherit;text-decoration:none">' + esc(s.name) + '</a> ' +
-      '<b style="font-family:var(--mono);font-weight:700;color:var(--fg)">' +
+      '<b style="font-family:var(--mono);font-weight:700;color:' + col + '">' +
       last.toFixed(0) + '</b></span>';
   }).join('');
 }
