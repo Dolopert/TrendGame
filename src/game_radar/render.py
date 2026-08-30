@@ -729,6 +729,56 @@ const CHART_WINDOWS = { '1d': 1, '7d': 7, '30d': 30, 'all': null };
 const CHART_LABEL = { '1d': '24 ชั่วโมง', '7d': '7 วัน', '30d': '30 วัน', 'all': 'ทั้งหมด' };
 let chartRange = '1d';
 
+// เส้นโค้งแบบ monotone cubic (Fritsch-Carlson)
+//
+// ทำไมไม่ใช้ bezier ธรรมดา: จุดข้อมูลห่างไม่เท่ากันจริง (GitHub Actions หน่วง
+// 43 นาที ถึง 3.5 ชม.) เส้นโค้งทั่วไปจะ overshoot คือวาดยอดหรือก้นที่
+// *ไม่เคยเกิดขึ้น* ระหว่างจุด ซึ่งอันตรายกับกราฟที่เอาไปตัดสินใจเรื่องเงิน
+//
+// monotone cubic บีบ tangent ไว้ (เงื่อนไข alpha^2+beta^2 <= 9) จึงการันตีว่า
+// ระหว่างสองจุดที่ติดกัน เส้นจะไม่เกินค่าของสองจุดนั้น — โค้งได้แต่ไม่โกหก
+function monotonePath(pts) {
+  const n = pts.length;
+  if (n === 0) return '';
+  if (n < 3) return 'M' + pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L');
+
+  const dx = [], dy = [], delta = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = pts[i + 1][0] - pts[i][0];
+    dy[i] = pts[i + 1][1] - pts[i][1];
+    delta[i] = dx[i] === 0 ? 0 : dy[i] / dx[i];
+  }
+  // ความชันเริ่มต้นที่แต่ละจุด = เฉลี่ยของสองช่วงที่ขนาบอยู่
+  const m = [delta[0]];
+  for (let i = 1; i < n - 1; i++) m[i] = (delta[i - 1] + delta[i]) / 2;
+  m[n - 1] = delta[n - 2];
+  // ที่จุดยอด/ก้น (ความชันสองข้างคนละเครื่องหมาย) ต้องบังคับความชันเป็น 0
+  // ถ้าไม่ทำ ค่าเฉลี่ยจะพาเส้นพุ่งเลยจุดจริงออกไป — วัดแล้วเกินได้ถึง 8.7px
+  // ขั้นนี้คือหัวใจของ Fritsch-Carlson ที่การ clamp ด้านล่างอย่างเดียวแทนไม่ได้
+  for (let i = 1; i < n - 1; i++) {
+    if (delta[i - 1] * delta[i] <= 0) m[i] = 0;
+  }
+  // บีบให้ไม่ overshoot: ช่วงที่ราบต้องราบจริง ที่เหลือย่อ tangent ลงในวงกลมรัศมี 3
+  for (let i = 0; i < n - 1; i++) {
+    if (delta[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / delta[i], b = m[i + 1] / delta[i], sq = a * a + b * b;
+    if (sq > 9) {
+      const tau = 3 / Math.sqrt(sq);
+      m[i] = tau * a * delta[i];
+      m[i + 1] = tau * b * delta[i];
+    }
+  }
+  let d = 'M' + pts[0][0].toFixed(1) + ',' + pts[0][1].toFixed(1);
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i] / 3;
+    d += 'C' + (pts[i][0] + h).toFixed(1) + ',' + (pts[i][1] + m[i] * h).toFixed(1) +
+         ' ' + (pts[i + 1][0] - h).toFixed(1) + ',' +
+         (pts[i + 1][1] - m[i + 1] * h).toFixed(1) +
+         ' ' + pts[i + 1][0].toFixed(1) + ',' + pts[i + 1][1].toFixed(1);
+  }
+  return d;
+}
+
 function drawChart() {
   const raw = DATA.filter(d => d.series && d.series.length >= 2);
   const allStamps = [...new Set(raw.flatMap(d => d.series.map(p => p[0])))].sort();
@@ -847,8 +897,8 @@ function drawChart() {
       d2 + '</text>';
   });
   series.forEach((s, i) => {
-    const pts = s.pts.map(([t, v]) => xs(t).toFixed(1) + ',' + ys(v).toFixed(1)).join(' ');
-    svg += '<polyline points="' + pts + '" fill="none" stroke="' +
+    const xy = s.pts.map(([t, v]) => [xs(t), ys(v)]);
+    svg += '<path d="' + monotonePath(xy) + '" fill="none" stroke="' +
       LINE_COLORS[i % LINE_COLORS.length] + '" stroke-width="1.8" ' +
       'stroke-linejoin="round" stroke-linecap="round"/>';
   });
