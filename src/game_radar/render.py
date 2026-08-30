@@ -15,6 +15,9 @@ from pathlib import Path
 from . import db, trend
 from .score import Assessment, assess
 
+# รากโปรเจกต์ — ใช้หาโฟลเดอร์ assets/fonts ที่ต้องคัดลอกไปข้างผลลัพธ์
+ROOT = Path(__file__).resolve().parents[2]
+
 BASIS_LABEL = {
     "history": ["ประวัติจริง", "คำนวณจากข้อมูลที่เก็บเองย้อนหลัง แม่นสุด"],
     "weekly_rank": ["อันดับรายสัปดาห์", "เทียบอันดับกับสัปดาห์ก่อนที่ Steam ให้มา"],
@@ -26,6 +29,21 @@ TEMPLATE = r"""<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Game Radar</title>
 <style>
+/* Kanit — ไฟล์อยู่ข้าง ๆ HTML ที่ fonts/ ไม่ได้ฝังเป็น base64
+   เพราะ docs/index.html ถูกเขียนใหม่วันละ ~5 รอบและ commit ทุกครั้ง
+   ถ้าฝังฟอนต์เข้าไฟล์ ทุก commit จะพก 113 KB ติดไปด้วยตลอด
+   แยกเป็นไฟล์ = commit ครั้งเดียว แล้วเบราว์เซอร์แคชข้ามหน้าได้ด้วย
+   ย่อเหลือเฉพาะละติน+ไทย+สัญลักษณ์ที่ใช้จริง: 840 KB -> 113 KB (ดู assets/fonts) */
+@font-face{font-family:Kanit;font-style:normal;font-weight:400;font-display:swap;
+  src:url(fonts/kanit-400.woff2) format("woff2")}
+@font-face{font-family:Kanit;font-style:normal;font-weight:500;font-display:swap;
+  src:url(fonts/kanit-500.woff2) format("woff2")}
+@font-face{font-family:Kanit;font-style:normal;font-weight:600;font-display:swap;
+  src:url(fonts/kanit-600.woff2) format("woff2")}
+@font-face{font-family:Kanit;font-style:normal;font-weight:700;font-display:swap;
+  src:url(fonts/kanit-700.woff2) format("woff2")}
+@font-face{font-family:Kanit;font-style:normal;font-weight:800;font-display:swap;
+  src:url(fonts/kanit-800.woff2) format("woff2")}
 :root{
   /* พาเลตต์เดียวกับ Hotel Finance — โทนมืดอย่างเดียว ไม่มีโหมดสว่าง
      ตัดสีลงเหลือสองตัว: เขียว = ดี/เลือกอยู่ · ส้ม = ร้อน/ต้องระวัง
@@ -38,8 +56,11 @@ TEMPLATE = r"""<meta charset="utf-8">
   --bg:#151619; --panel:#191a1d; --chip:#202225; --line:#2b2d31;
   --fg:#ecedf0; --muted:#9a9ea7; --dim:#696d76;
   --accent:#4ade80; --ok:#4ade80; --warm:#ff8a4c; --hot:#ff8a4c; --cool:#9a9ea7;
-  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",
-    Arial,"Noto Sans Thai",sans-serif;
+  --font:Kanit,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
+    "Noto Sans Thai",Arial,sans-serif;
+  /* ตัวเลขยังใช้ mono ต่อ — Kanit ไม่ใช่ฟอนต์ความกว้างคงที่ ถ้าเอามาใส่คอลัมน์
+     ตัวเลขในตาราง หลักจะไม่ตรงกัน กวาดสายตาเทียบค่าไม่ได้ ซึ่งเป็นงานหลัก
+     ของหน้านี้ ฟอนต์จึงแบ่งหน้าที่: Kanit = ข้อความ · mono = ตัวเลข */
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box}
@@ -1413,6 +1434,27 @@ def totals_series(conn: sqlite3.Connection) -> dict[str, dict]:
     return out
 
 
+def _copy_fonts(out_path: Path) -> None:
+    """วางฟอนต์ไว้ข้าง ๆ ไฟล์ HTML — CSS อ้างด้วย path สัมพัทธ์ `fonts/...`
+
+    ต้องคัดลอกทุกครั้งเพราะ build เขียนได้ทั้ง out/dashboard.html (ดูในเครื่อง)
+    และ docs/index.html (ที่ deploy) ทั้งสองที่ต้องมี fonts/ ของตัวเอง
+    ต้นฉบับอยู่ที่ assets/fonts/ ที่เดียว
+    """
+    src = ROOT / "assets" / "fonts"
+    if not src.is_dir():
+        return
+    dst = out_path.parent / "fonts"
+    dst.mkdir(parents=True, exist_ok=True)
+    for f in src.iterdir():
+        if f.is_file():
+            target = dst / f.name
+            # ข้ามถ้าเหมือนเดิม จะได้ไม่ทำให้ git เห็นไฟล์เปลี่ยนทุกรอบ scan
+            if target.exists() and target.stat().st_size == f.stat().st_size:
+                continue
+            target.write_bytes(f.read_bytes())
+
+
 def build(conn: sqlite3.Connection, out_path: Path) -> dict[str, int]:
     rows = db.latest_snapshot_per_title(conn)
     stocked = db.latest_market(conn, "platform")
@@ -1481,4 +1523,5 @@ def build(conn: sqlite3.Connection, out_path: Path) -> dict[str, int]:
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
+    _copy_fonts(out_path)
     return meta
