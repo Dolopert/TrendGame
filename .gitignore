@@ -7,3 +7,14 @@ out/
 __pycache__/
 *.pyc
 update_market.log
+
+# คีย์ API ของ 499k — ห้ามขึ้น git เด็ดขาด
+# (quantpath เคยมีเหตุคีย์หลุดจนต้อง rebuild git history ทั้งสาย)
+#
+# ดักทุกนามสกุล ไม่ใช่แค่ .env เป๊ะ ๆ เพราะ Notepad บน Windows เติม .txt
+# ให้เองเวลา Save As — เคยได้ .env.txt ที่หลุดกฎเดิมมาแล้วจริง ๆ
+.env*
+!.env.example
+
+# ผลดิบจาก probe — มีข้อมูลร้าน ไม่ต้องขึ้น git
+probe_499k_result.json
