@@ -12,7 +12,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import db
+from . import db, trend
 from .score import Assessment, assess
 
 BASIS_LABEL = {
@@ -173,6 +173,32 @@ h1{font-size:34px;font-weight:800;margin:8px 0 8px;letter-spacing:-.025em;
 .panelhead{display:flex;align-items:center;justify-content:space-between;
   gap:12px;flex-wrap:wrap;margin-bottom:6px}
 .panelhead h2{margin:0}
+/* แท็บในพาเนล — ใช้ขีดใต้ ไม่ใช่ปุ่มทึบ เพราะปุ่มช่วงเวลาข้าง ๆ กับปุ่มมุมมอง
+   ด้านล่างเป็นเขียวทึบอยู่แล้ว ถ้าทำทึบอีกจะแย่งสายตากันสามชั้น */
+.ptabs{display:flex;gap:20px;align-items:flex-end}
+.ptab{background:none;border:0;padding:0 0 8px;margin:0;font-family:inherit;
+  font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--dim);cursor:pointer;position:relative;transition:.13s}
+.ptab:hover{color:var(--muted)}
+.ptab[aria-pressed=true]{color:var(--accent)}
+.ptab[aria-pressed=true]::after{content:'';position:absolute;left:0;right:0;
+  bottom:0;height:2px;background:var(--accent)}
+.tgroup{margin-bottom:24px}
+.tgroup:last-child{margin-bottom:2px}
+.tgroup h3{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  margin:0 0 8px;color:var(--muted)}
+table.trend{width:100%;border-collapse:collapse;font-size:.84rem}
+table.trend th{text-align:left;font-weight:500;color:var(--dim);font-size:.72rem;
+  padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.trend td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.trend tr:last-child td{border-bottom:none}
+table.trend a{color:inherit;text-decoration:none}
+table.trend a:hover{text-decoration:underline}
+.tdays{display:flex;align-items:flex-end;gap:3px;height:20px}
+.tdays i{width:9px;background:var(--chip);border-radius:2px;display:block;min-height:2px}
+.tdays i.last{background:var(--muted)}
+.tfall{color:var(--warm)}
+.trise{color:var(--accent)}
 .ranges{display:flex;gap:5px}
 .rangebtn{background:var(--chip);border:1px solid var(--line);color:var(--muted);
   border-radius:9px;padding:5px 13px;font-size:12.5px;font-weight:700;
@@ -238,7 +264,10 @@ a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
 
   <div class="panel" id="chartpanel">
     <div class="panelhead">
-      <h2>ดัชนีผู้เล่นรายเกม</h2>
+      <div class="ptabs" role="tablist">
+        <button class="ptab" id="tChart" aria-pressed="true">ดัชนีผู้เล่นรายเกม</button>
+        <button class="ptab" id="tTrend" aria-pressed="false">แนวโน้มรายวัน</button>
+      </div>
       <div class="ranges" id="cranges">
         <button class="rangebtn" data-r="1d" aria-pressed="true">24hr</button>
         <button class="rangebtn" data-r="7d" aria-pressed="false">7d</button>
@@ -246,10 +275,16 @@ a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
         <button class="rangebtn" data-r="all" aria-pressed="false">ทั้งหมด</button>
       </div>
     </div>
-    <p id="charthint"></p>
-    <div id="chartpartial"></div>
-    <div class="chartwrap" id="chart"></div>
-    <div class="legend" id="legend"></div>
+    <div id="pageChart">
+      <p id="charthint"></p>
+      <div id="chartpartial"></div>
+      <div class="chartwrap" id="chart"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div id="pageTrend" hidden>
+      <p id="trendhint"></p>
+      <div id="trendbody"></div>
+    </div>
   </div>
 
   <div class="views">
@@ -974,6 +1009,86 @@ document.addEventListener('click', e => {
   if (e.target.closest('.surge')) { e.preventDefault(); e.stopPropagation(); }
 });
 
+// ---------- หน้า "แนวโน้มรายวัน" ----------
+// เทียบเกมกับตัวมันเองที่ชั่วโมงไทยเดียวกันคนละวัน — ตัวเลขคิดมาจากฝั่ง Python
+// (ดู trend.py) ที่นี่แค่จัดเรียงและวาด
+const TREND_MIN_DAYS = 3;   // 2 วันคือลากเส้นผ่านสองจุด ยังไม่เรียกว่าแนวโน้ม
+const TREND_MIN_CCU  = 2000; // เกมเล็กเปอร์เซ็นต์แกว่งแรงจนไม่มีความหมาย
+
+function dayBars(pts) {
+  const mx = Math.max(...pts.map(p => p[1])) || 1;
+  return '<div class="tdays">' + pts.map(([, c], i) =>
+    '<i class="' + (i === pts.length - 1 ? 'last' : '') + '" style="height:' +
+    Math.max(2, Math.round(c / mx * 20)) + 'px" title="' + nf.format(c) + '"></i>'
+  ).join('') + '</div>';
+}
+
+function trendRows(list) {
+  return '<table class="trend"><thead><tr>' +
+    '<th>เกม</th><th>รายวัน</th><th class="num">ล่าสุด</th>' +
+    '<th class="num">ต่อวัน</th><th class="num">รวม</th>' +
+    '<th class="num">รีวิว/วัน</th><th class="num">น่าซื้อ</th>' +
+    '</tr></thead><tbody>' + list.map(d => {
+      const k = d.decay, cls = k.per_day < 0 ? 'tfall' : 'trise';
+      const last = k.points[k.points.length - 1][1];
+      const rv = d.rev_per_day == null ? '—' : nf.format(Math.round(d.rev_per_day));
+      return '<tr>' +
+        '<td><a href="' + steamUrl(d.appid) + '" target="_blank" rel="noopener">' +
+        esc(d.name) + '</a></td>' +
+        '<td>' + dayBars(k.points) + '</td>' +
+        '<td class="num">' + nf.format(last) + '</td>' +
+        '<td class="num ' + cls + '">' + pct(k.per_day) + '</td>' +
+        '<td class="num ' + cls + '">' + pct(k.pct) + '</td>' +
+        '<td class="num">' + rv + '</td>' +
+        '<td class="num">' + d.opportunity_score.toFixed(1) + '</td>' +
+        '</tr>';
+    }).join('') + '</tbody></table>';
+}
+
+function pct(v) { return (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; }
+
+function drawTrend() {
+  const pool = DATA.filter(d => d.decay && d.decay.days >= TREND_MIN_DAYS &&
+    d.decay.points[d.decay.points.length - 1][1] >= TREND_MIN_CCU);
+  const hint = document.getElementById('trendhint');
+  const body = document.getElementById('trendbody');
+  if (!pool.length) {
+    hint.textContent = '';
+    body.innerHTML = '<div class="empty">ยังเทียบไม่ได้ — ต้องมีรอบเก็บที่ชั่วโมง' +
+      'ไทยใกล้เคียงกันอย่างน้อย ' + TREND_MIN_DAYS + ' วัน</div>';
+    return;
+  }
+  const days = Math.max(...pool.map(d => d.decay.days));
+  const withRev = pool.filter(d => d.rev_per_day != null).length;
+  hint.textContent = 'เทียบเกมกับตัวมันเองที่ชั่วโมงไทยเดียวกันคนละวัน — ตัด' +
+    'วัฏจักรรายวันที่ทำให้ CCU รวมแกว่ง 1.7 เท่าออก · ' + pool.length + ' เกม · ' +
+    'สูงสุด ' + days + ' วัน' +
+    (withRev ? ' · มีข้อมูลรีวิว/วันแล้ว ' + withRev + ' เกม'
+             : ' · รีวิว/วัน ยังว่าง (เพิ่งเริ่มเก็บประวัติ ต้องรออีก 1-2 วัน)');
+
+  const sorted = [...pool].sort((a, b) => a.decay.per_day - b.decay.per_day);
+  const fall = sorted.filter(d => d.decay.per_day < 0).slice(0, 12);
+  const rise = sorted.filter(d => d.decay.per_day > 0).slice(-12).reverse();
+  body.innerHTML =
+    (fall.length ? '<div class="tgroup"><h3>กำลังตก — ระวังซื้อตอนนี้</h3>' +
+      trendRows(fall) + '</div>' : '') +
+    (rise.length ? '<div class="tgroup"><h3>กำลังมา</h3>' +
+      trendRows(rise) + '</div>' : '');
+}
+
+// สลับหน้าในพาเนล — ปุ่มช่วงเวลาใช้กับกราฟเท่านั้น จึงซ่อนตอนอยู่หน้าแนวโน้ม
+function setPanelPage(which) {
+  const isChart = which === 'chart';
+  document.getElementById('tChart').setAttribute('aria-pressed', String(isChart));
+  document.getElementById('tTrend').setAttribute('aria-pressed', String(!isChart));
+  document.getElementById('pageChart').hidden = !isChart;
+  document.getElementById('pageTrend').hidden = isChart;
+  document.getElementById('cranges').style.visibility = isChart ? '' : 'hidden';
+  if (!isChart) drawTrend();
+}
+document.getElementById('tChart').addEventListener('click', () => setPanelPage('chart'));
+document.getElementById('tTrend').addEventListener('click', () => setPanelPage('trend'));
+
 drawBars();
 drawChart();
 apply();
@@ -1047,6 +1162,10 @@ def build(conn: sqlite3.Connection, out_path: Path) -> dict[str, int]:
         hist = [c for _, c in db.ccu_history(conn, row["appid"])]
         items.append(assess(conn, row, hist, stocked, mine, delta))
 
+    # แนวโน้มรายวัน คิดทีเดียวทั้งชุด — คนละเรื่องกับ Surge ในคะแนน (ดู trend.py)
+    decay = trend.decay_all(db.ccu_by_appid(conn))
+    velocity = trend.velocity_all(db.review_series(conn))
+
     payload = []
     for row, a in zip(rows, items):
         d = asdict(a)
@@ -1060,6 +1179,14 @@ def build(conn: sqlite3.Connection, out_path: Path) -> dict[str, int]:
             if a.ccu is not None
             else []
         )
+        dec = decay.get(a.appid)
+        d["decay"] = (
+            {"pct": round(dec.pct, 4), "per_day": round(dec.per_day, 4),
+             "days": dec.days, "hour": dec.hour,
+             "points": [[t, c] for t, c in dec.points]}
+            if dec else None
+        )
+        d["rev_per_day"] = round(velocity[a.appid], 1) if a.appid in velocity else None
         payload.append(d)
 
     scanned_at = rows[0]["taken_at"] if rows else db.utcnow()

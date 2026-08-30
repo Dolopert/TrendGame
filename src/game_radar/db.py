@@ -67,6 +67,21 @@ CREATE INDEX IF NOT EXISTS idx_market_appid_time
     ON market_snapshot(appid, scope, taken_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_market_unique
     ON market_snapshot(appid, taken_at, scope);
+
+-- ประวัติจำนวนรีวิว — แยกตารางเพราะขยับคนละจังหวะกับ snapshot
+-- (รอบละ 60 เกมเท่านั้น ถ้ายัดเข้า snapshot จะได้ค่าซ้ำเดิมเต็มไปหมด)
+-- ที่ต้องเก็บประวัติ: จำนวนรีวิวใหม่ต่อวัน = คนซื้อใหม่ ซึ่งลดลง *ก่อน* CCU ลด
+-- เพราะคนซื้อวันนี้คือคนเล่นสัปดาห์หน้า เป็นตัวชี้นำ ไม่ใช่ตัวตาม
+CREATE TABLE IF NOT EXISTS review_snapshot (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    appid        INTEGER NOT NULL,
+    taken_at     TEXT NOT NULL,
+    review_total INTEGER,
+    review_ratio REAL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_review_snap_unique
+    ON review_snapshot(appid, taken_at);
 """
 
 
@@ -374,6 +389,32 @@ def ccu_series(conn: sqlite3.Connection, appid: int, limit: int = 60) -> list[tu
 # เพราะไฟล์ไบนารีจะถูก git เก็บสำเนาเต็มทุก commit (ปีละหลายร้อย MB)
 # ส่วนไฟล์ข้อความที่เพิ่มบรรทัดท้าย ๆ git ทำ delta ได้ดีมาก
 
+def ccu_by_appid(conn: sqlite3.Connection) -> dict[int, list[tuple[str, int]]]:
+    """CCU ทุกจุดของทุกเกม — ให้ trend.py จับคู่ชั่วโมงเอง
+
+    คืนทุกจุดไม่ยุบรายวัน เพราะการจับคู่ "ชั่วโมงเดียวกันคนละวัน" ต้องใช้เวลาจริง
+    (อย่าสับกับ ccu_history ที่ยุบรายวันไว้ใช้คิดอัตราโต — ดู UPDATE.md 4.2)
+    """
+    out: dict[int, list[tuple[str, int]]] = {}
+    for r in conn.execute(
+        "SELECT appid, taken_at, ccu FROM snapshot "
+        "WHERE ccu IS NOT NULL ORDER BY appid, taken_at"
+    ):
+        out.setdefault(r["appid"], []).append((r["taken_at"], r["ccu"]))
+    return out
+
+
+def review_series(conn: sqlite3.Connection) -> dict[int, list[tuple[str, int]]]:
+    """ประวัติจำนวนรีวิวรายเกม — ว่างจนกว่าจะ scan ผ่านไปแล้วอย่างน้อยสองรอบ"""
+    out: dict[int, list[tuple[str, int]]] = {}
+    for r in conn.execute(
+        "SELECT appid, taken_at, review_total FROM review_snapshot "
+        "WHERE review_total IS NOT NULL ORDER BY appid, taken_at"
+    ):
+        out.setdefault(r["appid"], []).append((r["taken_at"], r["review_total"]))
+    return out
+
+
 def dump_sql(conn: sqlite3.Connection, path: Path) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0
@@ -441,6 +482,7 @@ def appids_needing_reviews(
 
 
 def update_reviews(conn: sqlite3.Connection, appid: int, data: dict[str, Any]) -> None:
+    now = utcnow()
     conn.execute(
         """
         UPDATE title SET
@@ -453,7 +495,15 @@ def update_reviews(conn: sqlite3.Connection, appid: int, data: dict[str, Any]) -
             reviews_fetched_at = :now
         WHERE appid = :appid
         """,
-        {**data, "appid": appid, "now": utcnow()},
+        {**data, "appid": appid, "now": now},
+    )
+    # เก็บประวัติไว้ด้วย ไม่ใช่เขียนทับอย่างเดียว — ค่าเดี่ยว ๆ บอกได้แค่ว่า
+    # "ดังแค่ไหน" ส่วนความชันบอกว่า "กำลังมาหรือกำลังไป" ซึ่งมีค่ากว่า
+    conn.execute(
+        """INSERT OR IGNORE INTO review_snapshot
+               (appid, taken_at, review_total, review_ratio)
+           VALUES (?, ?, ?, ?)""",
+        (appid, now, data.get("review_total"), data.get("review_ratio")),
     )
 
 
