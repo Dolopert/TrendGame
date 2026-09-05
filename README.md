@@ -54,8 +54,15 @@ powershell -ExecutionPolicy Bypass -File game-radar/setup_scheduler.ps1
 สคริปต์ทำตามลำดับนี้ และ **ห้ามสลับ**:
 
 ```
-pull -> restore --force -> market -> dump -> commit -> push
+pull -> restore --force -> market -> scan -> dash -> dump -> commit -> push
 ```
+
+ระหว่าง `market` กับ `scan` สคริปต์ยังรัน `game-radar mine` — ดึง**ข้อมูลร้านของเราเอง**
+จากหลังบ้าน 499k (สถานะไอดีว่าง/ติดเช่า + ยอด/ประวัติรายได้ ต้องล็อกอิน) ลง
+`data/own.sqlite3` + สร้าง `out/own.html` — **ไฟล์ local ทั้งคู่ ไม่ขึ้น git
+และไม่มีคำสั่ง dump** เพราะยอดเงินร้านเป็นข้อมูลธุรกิจ ไม่ควรอยู่บน repo สาธารณะ
+ขั้นนี้ล้มแล้วไม่หยุดทั้งงาน (session login 499k หมดอายุทุก ~3 วัน ต้อง re-login
+ใน SyncProfile Brave — ดู UPDATE.md ข้อ 3.8)
 
 ขั้น `restore --force` คือหัวใจ เพราะต้องเอาข้อมูลที่ cloud เก็บไว้มาเป็นฐานก่อน
 ถ้าข้ามไป ตอน dump จะเขียนทับด้วยฐานข้อมูลเก่าในเครื่อง แล้วข้อมูลของ cloud หายทันที
@@ -66,6 +73,7 @@ pull -> restore --force -> market -> dump -> commit -> push
 |---|---|---|
 | Steam + สร้างหน้าเว็บ | GitHub · ทุก 6 ชม. | **ไม่ต้อง** |
 | สต็อกตลาดเช่า | เครื่องบ้าน · 22:00 | ต้อง แต่เลื่อนได้ |
+| ร้านเรา (หลังบ้าน 499k) | เครื่องบ้าน · 22:00 (ต่อจาก market) | ต้อง + ต้องเปิด Hermes (SyncProfile Brave)
 
 ตัว task ตั้ง `StartWhenAvailable` ไว้ ถ้า 4 ทุ่มเครื่องปิดอยู่ Windows จะรันให้
 ทันทีที่เปิดเครื่องครั้งถัดไป และตั้ง `WakeToRun` ไว้ด้วย เครื่องที่ **หลับ** อยู่

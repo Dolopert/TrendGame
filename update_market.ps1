@@ -46,6 +46,16 @@ try {
     & $Uv run game-radar market
     if ($LASTEXITCODE -ne 0) { throw "เก็บข้อมูลตลาดไม่สำเร็จ" }
 
+    # ร้านเรา (หลังบ้าน 499k): สถานะไอดี + ยอด/ประวัติเช่า -> data/own.sqlite3 + out/own.html
+    # ต้องใช้ SyncProfile Brave (พอร์ต 9222) ที่ login 499k ค้าง — ถ้า Hermes/เบราว์เซอร์
+    # ไม่ได้เปิดอยู่ หรือ session หมดอายุ (ทุก ~3 วัน) จะล้มแบบไม่ fatal แล้วไปต่อ
+    # เพราะ radar.sql/docs/index.html ยังต้อง push ตามปกติ (ข้อมูลคนละฐานกับ mine)
+    Say "เก็บสถานะ/ยอดร้านเรา (หลังบ้าน 499k)"
+    & $Uv run game-radar mine
+    if ($LASTEXITCODE -ge 2) {
+        Say "เตือน: เก็บข้อมูลร้านเราไม่สำเร็จ (exit $LASTEXITCODE) - ดู out/own.html ครั้งถัดไปหรือ re-login 499k ใน SyncProfile Brave"
+    }
+
     # ไม่ throw ถ้าฝั่ง Steam ล้ม — ข้อมูลตลาดที่เพิ่งเก็บได้ต้องไม่หายไปด้วย
     # เครื่องนี้เป็นที่เดียวที่เก็บฝั่งตลาดได้ ส่วนฝั่ง Steam ยังมี cloud เป็นอีกทาง
     # (แนวเดียวกับ market --allow-fail บน CI)

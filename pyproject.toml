@@ -3,7 +3,7 @@ name = "game-radar"
 version = "0.1.0"
 description = "จับเกม Steam ที่กำลังพุ่ง แล้วคัดเฉพาะตัวที่เอาไปปล่อยเช่าไอดีได้"
 requires-python = ">=3.11"
-dependencies = ["httpx>=0.27"]
+dependencies = ["httpx>=0.27", "websocket-client>=1.6"]
 
 [project.scripts]
 game-radar = "game_radar.cli:main"

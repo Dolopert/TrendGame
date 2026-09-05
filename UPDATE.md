@@ -1,6 +1,6 @@
 # UPDATE — สถานะและบันทึกการตัดสินใจ
 
-เอกสารส่งต่อสำหรับ session ถัดไป · อัปเดตล่าสุด **30 ส.ค. 2026**
+เอกสารส่งต่อสำหรับ session ถัดไป · อัปเดตล่าสุด **5 ก.ย. 2026**
 
 `README.md` บอก *วิธีใช้* · `CONTEXT.md` บอก *คำศัพท์* · ไฟล์นี้บอก **สถานะปัจจุบัน
 เหตุผลเบื้องหลังการตัดสินใจ และกับดักที่เคยเสียเวลาไปแล้ว** อ่านไฟล์นี้ก่อนแก้อะไร
@@ -209,6 +209,62 @@ API ทางการที่ `/docs/api` **มีของที่เรา�
 
 ---
 
+### 3.7 สต็อกไอดีของร้าน อยู่คนละฐานข้อมูลกับเรดาร์ (2 ก.ย.)
+
+`game-radar stock` เก็บ **ไอดีที่ร้านถือ · เกมในไอดี · การเช่าแต่ละครั้ง**
+ที่ `data/stock.sqlite3` ซึ่งเป็นไฟล์คนละตัวกับ `radar.sqlite3` โดยเจตนา
+
+**เหตุผลเดียวที่แยก: repo นี้ public และ `data/radar.sql` ถูก commit ทุกคืน 22:00**
+ถ้าเอาอีเมล ชื่อล็อกอิน และชื่อลูกค้าไปใส่รวมในฐานเดียวกัน `dump` จะพามันขึ้น
+GitHub เองโดยไม่มีใครทันสังเกต จึงไม่มีคำสั่ง `dump` ฝั่ง stock ให้เผลอใช้เลย
+สำรองด้วย `stock export <โฟลเดอร์นอกโปรเจกต์>` ซึ่ง**ปฏิเสธถ้าปลายทางอยู่ใน `data/`**
+และ `.gitignore` ดัก `data/stock.*` กับ `account.csv/license.csv/rental.csv` ไว้อีกชั้น
+
+**ห้ามเก็บรหัสผ่านและ revocation code ในฐานนี้** เก็บได้แค่ `vault_ref` คือ
+*ชื่อรายการ* ใน password manager — ไฟล์ SQLite ไม่ได้เข้ารหัส ใครหยิบไฟล์ไปก็อ่านได้หมด
+และ revocation code มีค่าเท่ากับตัวบัญชีเอง
+
+**ของจริงที่ได้จากตารางนี้คือดีมานด์** ซึ่งข้อ 3.3 บอกว่าทั้งระบบยังไม่มีเลย
+`stocked_total` วัดซัพพลาย (คู่แข่งมีของกี่ใบ อาจเป็นของค้างสต็อก) ส่วน
+`stock demand` วัดว่า *ของเราปล่อยออกกี่วันจากวันที่ปล่อยได้* แล้ววางเทียบกับคะแนน
+Opportunity ที่เรดาร์ให้ไว้ — ถ้าเกมคะแนนสูงแต่ปล่อยไม่ออกซ้ำ ๆ แปลว่าสูตรใน
+`score.py` ผิด ไม่ใช่ตลาดผิด นี่เป็นทางเดียวที่ตรวจสูตรได้โดยไม่ต้องรอ API 499k
+ปลดล็อก (ข้อ 5.1) แต่ต้องบันทึก `--appid` ทุกครั้งที่ปล่อยเช่า ไม่งั้นได้แค่ยอดเงิน
+
+**ยังไม่เชื่อมกับ dashboard และไม่ควรเชื่อม** `docs/index.html` ถูก push ขึ้น
+GitHub Pages สาธารณะ ถ้าอยากเห็นสต็อกบนหน้าเว็บ ต้องเป็นหน้าแยกที่ไม่ถูก commit
+
+---
+
+### 3.8 ข้อมูลร้านเรา (หลังบ้าน 499k) — ฐานแยก ไม่ขึ้น git (5 ก.ย.)
+
+`game-radar mine` ดึง **สถานะไอดี (ว่าง/ติดเช่า) · ยอดสรุป · ประวัติรายการเช่า/เงิน**
+ของร้าน Online101Gaming จากหลังบ้าน 499k (ต้องล็อกอิน) ลง `data/own.sqlite3`
+แล้วสร้าง `out/own.html` (หน้า local) — ฐานคนละตัวกับ radar **โดยเจตนาและเหตุผลเดียวกับ
+ข้อ 3.7**: `radar.sql` ถูก commit ขึ้น repo สาธารณะทุกคืน ถ้ายอดเงินร้านหลุดเข้าไป
+คู่แข่งอ่าน repo เห็นหมด จึงไม่มีคำสั่ง dump ฝั่งนี้ และ `.gitignore` ดัก `data/own.*`
+
+**ดึงยังไง — ต้องผ่านเบราว์เซอร์จริง**: API หลังบ้านอยู่หลัง Cloudflare ที่ให้
+**curl/httpx ได้ 502 เสมอ** (แม้ส่ง cookie ครบ 5 ก.ย. ตรวจแล้ว — non-browser TLS
+โดน block) ส่วน API สาธารณะของ market.py ยังยิงตรงได้ปกติ วิธีที่ใช้: รัน fetch
+ในหน้าเว็บผ่าน CDP บน **SyncProfile Brave พอร์ต 9222** (ตัวเดียวกับ iLearning cron)
+ที่ login 499k ค้าง — ไม่มีการเก็บคุกกี้/รหัสลงไฟล์แต่อย่างใด
+
+**session หมดอายุทุก ~3 วัน** (NextAuth `__Secure-next-auth.session-token`)
+→ เจอหน้า login ตอนดึง จะ exit 2 พร้อมข้อความ `MINE_AUTH_EXPIRED` ให้ re-login
+ใน SyncProfile Brave (Google ยัง login ค้าง ~180 วัน = 1 คลิก ไม่ต้องพิมพ์รหัสซ้ำ)
+ขั้นนี้ใน `update_market.ps1` ล้มแล้วไม่หยุดทั้งงาน — ข้อมูลคนละฐานกับ radar
+
+**ห้ามเก็บ `password`/`username` ที่ API `getrentalaccount` คืนมาเด็ดขาด**
+เป็นรหัสไอดี Steam ของร้าน ตัวกรองใน `seller_fetch()` ตัดออกก่อนถึงฐานทุกครั้ง
+และ schema ของ `own.sqlite3` ก็ไม่มีคอลัมน์ให้เก็บของพวกนี้อยู่แล้ว
+
+**endpoint ที่ใช้** (verified 200 จากในเบราว์เซอร์): `storeDashboard?sold_month&sold_year`
+(ยอดรวม/เดือน/วันนี้) · `getrentalaccount?page=N` (ไอดี+สถานะ) ·
+`gettransactions?page=1&trans_page=N` (รายการเงิน 15/หน้า)
+กับดักที่เจอ: paging ใช้ `trans_page` ไม่ใช่ `page` (ยิง `page=2` ได้หน้าเดิมซ้ำ)
+และตั้งชื่อตารางว่า `txn` เพราะ `transaction` เป็นคำสงวนของ SQLite
+
 ## 4. กับดักที่เคยเสียเวลาไปแล้ว — อย่าเหยียบซ้ำ
 
 ### 4.1 ตัวคูณที่โตไม่มีขอบเขต
@@ -355,7 +411,9 @@ src/game_radar/
   score.py    Surge · Freshness · สต็อก → Opportunity  ← ค่าคงที่ทั้งหมดมีที่มา
   trend.py    แนวโน้มรายวัน (เทียบชั่วโมงเดียวกัน) + ความเร็วรีวิว ← คนละแกนกับ score
   render.py   สร้าง dashboard.html (กราฟ, การ์ด, ตาราง, ตัวกรอง, drawer)
-  cli.py      scan · market · dash · top · dump · restore · run
+  stock.py    สต็อกไอดีของร้าน — ฐานข้อมูลแยก ไม่ขึ้น git (ดู 3.7)
+  mine.py     ข้อมูลร้านเราจากหลังบ้าน 499k — ฐานแยก ไม่ขึ้น git (ดู 3.8)
+  cli.py      scan · market · mine · dash · top · dump · restore · run · stock
 
 setup_scheduler.ps1   ตั้ง Task Scheduler
 update_market.ps1     งานที่ task เรียก (market + scan + dash + push)
@@ -366,8 +424,13 @@ probe_499k_api.py     ตรวจ API 499k — GET ล้วน ไม่แต
 .env.example    แม่แบบ ตัวเดียวที่ยกเว้นด้วย !.env.example
 data/radar.sql        ฐานข้อมูลในรูปข้อความ (อยู่ใน git)
 data/radar.sqlite3    ฐานข้อมูลจริง (gitignore สร้างด้วย restore)
+data/stock.sqlite3    สต็อกไอดีของร้าน (gitignore · ไม่มี dump · สำรองเอง)
+data/own.sqlite3      ข้อมูลร้านเราจากหลังบ้าน 499k (gitignore · ไม่มี dump)
+out/own.html          หน้าสรุป local ของข้อมูลร้านเรา (out/ โดน ignore)
 docs/index.html       หน้าเว็บที่ deploy (generate อย่าแก้มือ)
 ```
+
+ตารางใน `stock.sqlite3`: `account` (ไอดี) · `license` (เกมในไอดี) · `rental` (การเช่า)
 
 ตารางในฐานข้อมูล: `title` · `snapshot` (CCU/อันดับรายรอบ) ·
 `market_snapshot` (สต็อกตลาด) · `review_snapshot` (ประวัติจำนวนรีวิว — ใหม่)
@@ -380,6 +443,9 @@ docs/index.html       หน้าเว็บที่ deploy (generate อย�
 uv run --project game-radar game-radar top -n 15        # ดูอันดับเร็ว ๆ
 uv run --project game-radar game-radar restore --force  # ดึงข้อมูลจากรีโปมาเครื่อง
 uv run --project game-radar game-radar dash             # สร้างหน้าเว็บใหม่
+
+uv run --project game-radar game-radar stock list        # ไอดีไหนว่าง เลยกำหนดคืนบ้าง
+uv run --project game-radar game-radar stock demand      # ปล่อยออกจริง เทียบคะแนนเรดาร์
 ```
 
 ดูหน้าเว็บ: preview config ชื่อ `game-radar` (พอร์ต 5501)

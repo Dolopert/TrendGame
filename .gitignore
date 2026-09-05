@@ -16,5 +16,15 @@ update_market.log
 .env*
 !.env.example
 
+# สต็อกไอดีของร้าน — มีอีเมล ชื่อล็อกอิน และชื่อลูกค้า
+# repo นี้เป็น public และ data/radar.sql ถูก commit ทุกคืน ถ้าไฟล์พวกนี้หลุดเข้าไป
+# จะขึ้น GitHub ให้คนทั้งโลกอ่าน (data/*.sqlite3 ดักตัวฐานข้อมูลไว้แล้ว
+# บรรทัดนี้ดักไฟล์ส่งออกและไฟล์สำรองที่คนเผลอวางไว้ในโปรเจกต์)
+data/stock.*
+data/own.*
+account.csv
+license.csv
+rental.csv
+
 # ผลดิบจาก probe — มีข้อมูลร้าน ไม่ต้องขึ้น git
 probe_499k_result.json
