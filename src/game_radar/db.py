@@ -12,6 +12,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 SCHEMA = """
@@ -239,6 +240,85 @@ def stale_appids(
         (max_age_days, retry_failed_after_days),
     )
     return [r["appid"] for r in cur.fetchall()]
+
+
+def hot_refresh_appids(
+    conn: sqlite3.Connection,
+    *,
+    min_age_hours: float = 18.0,
+    growth_min: float = 3.0,
+    rank_jump_min: int = 40,
+    ccu_min: int = 800,
+    limit: int = 25,
+) -> list[int]:
+    """เกมที่ "กระแสพุ่ง" — รีเฟรช metadata ทันที ไม่รอรอบอายุ 3 วันตาม stale_appids
+
+    เคสที่มา: Valheim 1.0 (9 ก.ย. 2026) — CCU พุ่ง ×11 ตั้งแต่วันแรก แต่ metadata
+    วันวางขายใหม่เข้าฐานช้าไป 3 วัน ตลอดช่วงนั้นคะแนนถูก gate "เกมเก่า" ทั้งที่
+    ข้อมูลกระแสอยู่ในมือ — เกมเก่าที่ออก 1.0/รีลอนช์ไม่ควรเสียเวลาแบบนั้น
+
+    ตัวชี้ (หยาบได้ — ผลลัพธ์คือยิง appdetails เพิ่มไม่กี่ครั้ง ไม่ใช่คำตัดสินใจเงิน):
+      - CCU ล่าสุด >= growth_min เท่าของค่ากลางรายวันก่อนหน้า (ต้องมี >=3 วันก่อน)
+      - หรืออันดับรายสัปดาห์พุ่ง >= rank_jump_min
+    ทั้งคู่ต้อง CCU >= ccu_min และเฉพาะเกมที่ metadata อายุ >= min_age_hours
+    """
+    # 1) CCU ล่าสุดของแต่ละวัน ย้อน ~10 วัน — เทียบแบบหยาบรายวัน
+    daily: dict[int, dict[str, int]] = {}
+    for r in conn.execute(
+        """
+        SELECT appid, substr(taken_at, 1, 10) AS day, ccu
+        FROM snapshot
+        WHERE ccu IS NOT NULL
+          AND substr(taken_at, 1, 10) >= date('now', '-10 days')
+        ORDER BY taken_at
+        """
+    ):
+        daily.setdefault(r["appid"], {})[r["day"]] = r["ccu"]
+
+    cand: dict[int, float] = {}
+    for appid, days in daily.items():
+        seq = sorted(days.items())
+        latest = seq[-1][1]
+        prior = [c for _, c in seq[:-1]]
+        if len(prior) >= 3 and latest >= ccu_min:
+            base = median(prior)
+            if base > 0 and latest / base >= growth_min:
+                cand[appid] = latest / base
+
+    # 2) อันดับรายสัปดาห์พุ่ง (เส้นเสริมสำหรับเกมที่เพิ่งติดชาร์ต)
+    for r in conn.execute(
+        """
+        SELECT s.appid, s.played_rank, s.last_week_rank, s.ccu
+        FROM snapshot s
+        JOIN (SELECT appid, MAX(id) AS mid FROM snapshot GROUP BY appid) m
+          ON m.mid = s.id AND m.appid = s.appid
+        """
+    ):
+        rank, lw, ccu = r["played_rank"], r["last_week_rank"], r["ccu"]
+        if (ccu or 0) >= ccu_min and rank and lw and lw > 0 and (lw - rank) >= rank_jump_min:
+            cand.setdefault(r["appid"], 0.0)
+
+    if not cand:
+        return []
+
+    # 3) คัดเฉพาะที่ metadata เก่าพอ + ไม่ได้เพิ่งพัง (กันยิงซ้ำของที่ไม่มีวันสำเร็จ)
+    ranked = [a for a, _ in sorted(cand.items(), key=lambda kv: -kv[1])][: limit * 3]
+    marks = ",".join("?" * len(ranked))
+    ok = {
+        r["appid"]
+        for r in conn.execute(
+            f"""
+            SELECT appid FROM title
+            WHERE appid IN ({marks})
+              AND (metadata_fetched_at IS NULL
+                   OR julianday('now') - julianday(metadata_fetched_at) > ?)
+              AND (metadata_failed_at IS NULL
+                   OR julianday('now') - julianday(metadata_failed_at) > 3)
+            """,
+            (*ranked, min_age_hours / 24.0),
+        )
+    }
+    return [a for a in ranked if a in ok][:limit]
 
 
 def mark_metadata_failed(conn: sqlite3.Connection, appid: int) -> None:

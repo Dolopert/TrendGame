@@ -5,7 +5,8 @@
   1. ชาร์ต 2 ตัว  -> ได้ CCU + อันดับ ของ ~100-150 เกม ด้วย 2 request
   2. หน้าร้าน     -> ได้เกมใหม่/ลดราคาที่ยังไม่ติดชาร์ต ด้วย 1 request
   3. CCU รายตัว   -> เฉพาะเกมจากข้อ 3 ที่ไม่มีในชาร์ต
-  4. appdetails   -> เฉพาะเกมที่ metadata เก่าหรือยังไม่เคยดึง (ตัวนี้ช้าสุด)
+  4. appdetails   -> เกมที่ metadata เก่าหรือยังไม่เคยดึง + เกมที่กระแสพุ่ง
+                     (ต้องรีเฟรชวันวางขาย/ราคาทันที — เคสเกมเก่าออก 1.0) (ตัวนี้ช้าสุด)
 """
 from __future__ import annotations
 
@@ -118,7 +119,14 @@ def run_scan(
             db.insert_snapshot(conn, taken_at, s)
         conn.commit()
 
-        stale = db.stale_appids(conn)[:metadata_limit]
+        # เกมที่กระแสพุ่ง (เช่นเกมเก่าออก 1.0 — เคส Valheim ก.ย. 2026) ต้องได้ metadata
+        # ใหม่ทันที ไม่รอคิวอายุ 3 วัน ไม่งั้นวันวางขายใหม่มาช้าแล้วคะแนนความสดไม่ติด
+        # ทั้งช่วงที่กระแสกำลังมา — ดู db.hot_refresh_appids (hot มาก่อน แล้วต่อด้วยคิวเดิม)
+        hot = db.hot_refresh_appids(conn)
+        if verbose and hot:
+            print(f"[4/4a] กระแสพุ่ง — รีเฟรช metadata ก่อนกำหนด {len(hot)} ตัว", flush=True)
+        hot_set = set(hot)
+        stale = hot + [a for a in db.stale_appids(conn) if a not in hot_set][:metadata_limit]
         if verbose:
             print(f"[4/4] ดึงรายละเอียดเกม {len(stale)} ตัว (~{len(stale) * APPDETAILS_DELAY / 60:.1f} นาที) ...", flush=True)
         fetched = 0
