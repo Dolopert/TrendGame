@@ -33,6 +33,11 @@ from typing import Any
 CDP_HTTP = "http://127.0.0.1:9222"
 DASH_URL = "https://store.499k-network.com/dashboard"
 API_BASE = "https://store.499k-network.com"
+LOGIN_URL = "https://store.499k-network.com/user/sign-in?callbackUrl=/dashboard"
+ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+
+CRED_FIELD_USER = "MINE_499K_USERNAME"   # optional (default diffykungz)
+CRED_FIELD_PASS = "MINE_499K_PASSWORD"   # optional — ใส่เมื่ออยากให้ auto-login
 
 TH = timezone(timedelta(hours=7))
 
@@ -223,6 +228,108 @@ FETCH_JS = """
 """
 
 
+# ---------- env auto-login (optional) ----------
+
+def _env_credentials() -> tuple[str | None, str | None]:
+    """อ่าน username/password จาก .env (root ของ repo) — คืน (user, pwd) ไม่มี = (None, None)
+
+    เจตนา: ให้ owner ฝาก password บัญชี 499k ไว้ใน .env ได้ (gitignored)
+    แล้ว mine จะล็อกอินเองอัตโนมัติเมื่อ session หมด — ไม่ต้องรอคนคลิก
+    ห้าม log/echo ค่าที่อ่านได้เด็ดขาด (บัญชีนี้ถอนเงินร้านได้)
+    """
+    try:
+        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None, None
+    vals: dict[str, str] = {}
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        vals[k.strip()] = v.strip().strip('"').strip("'")
+    return vals.get(CRED_FIELD_USER) or "diffykungz", vals.get(CRED_FIELD_PASS)
+
+
+AUTO_LOGIN_JS = """
+(async () => {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const navigate = () => new Promise(res => {
+    const done = () => res();
+    window.addEventListener('pagehide', done, {once: true});
+    setTimeout(done, 3000);
+    location.href = '""" + LOGIN_URL.replace("&", "\u0026") + """';
+  });
+  for (let attempt = 0; attempt < 3 && !location.pathname.startsWith('/user/sign-in'); attempt++) {
+    await navigate();
+  }
+  for (let i = 0; i < 40 && document.readyState !== 'complete'; i++) await sleep(250);
+  const set = (el, v) => {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
+                 : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype
+                 : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v);
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+  };
+  const u = document.querySelector('input[name="username"]');
+  const pw = document.querySelector('input[name="password"]');
+  if (!u || !pw) return JSON.stringify({ok: false, why: 'fields-not-found', url: location.href});
+  set(u, USERNAME);
+  set(pw, PASSWORD);
+  await sleep(300);
+  const form = pw.closest('form') || document.querySelector('form');
+  if (!form) return JSON.stringify({ok: false, why: 'no-form', url: location.href});
+  form.requestSubmit();
+  for (let i = 0; i < 35; i++) {
+    await sleep(700);
+    if (!location.pathname.startsWith('/user/sign-in')) {
+      return JSON.stringify({ok: true, url: location.href});
+    }
+    const txt = (document.body && document.body.innerText || '');
+    if (/ไม่ถูกต้อง|incorrect|invalid/i.test(txt)) return JSON.stringify({ok: false, why: 'bad-credentials'});
+  }
+  return JSON.stringify({ok: false, why: 'timeout', url: location.href});
+})()
+"""
+
+
+def _try_env_login(ws_url: str) -> bool:
+    """พยายามล็อกอินอัตโนมัติด้วย env credentials ผ่านหน้า login ปัจจุบัน
+
+    คืน True = ล็อกอินสำเร็จ (หน้าเด้งออกจาก /user/sign-in แล้ว)
+    False = ไม่มี env / กรอกไม่สำเร็จ — ให้ caller เตือน user ล็อกอินมือ
+    """
+    user, pwd = _env_credentials()
+    if not pwd:
+        return False
+    import websocket  # noqa: PLC0415
+
+    ws = websocket.create_connection(ws_url, timeout=60)
+    try:
+        js = (
+            AUTO_LOGIN_JS.replace("USERNAME", json.dumps(user))
+            .replace("PASSWORD", json.dumps(pwd))
+        )
+        ws.send(json.dumps({
+            "id": 1,
+            "method": "Runtime.evaluate",
+            "params": {"expression": js, "returnByValue": True, "awaitPromise": True},
+        }))
+        while True:
+            msg = json.loads(ws.recv())
+            if msg.get("id") != 1:
+                continue
+            raw = msg.get("result", {}).get("result", {}).get("value")
+            try:
+                out = json.loads(raw)
+            except Exception:
+                return False
+            return bool(out.get("ok"))
+    finally:
+        ws.close()
+
+
 def seller_fetch() -> dict[str, Any]:
     """ดึง dash + ไอดี + รายการเงินจากหลังบ้าน ผ่านเบราว์เซอร์ CDP พอร์ต 9222
 
@@ -258,10 +365,18 @@ def seller_fetch() -> dict[str, Any]:
     # รอให้หน้าโหลดจริงและพ้นหน้า login (NextAuth อาจ redirect ไปมาไม่กี่จังหวะ)
     expired = _wait_ready(ws_url)
     if expired:
-        raise MineAuthExpired(
-            "session 499k หมดอายุ (เจอหน้า login) — ให้ user เปิด "
-            f"{DASH_URL} ใน SyncProfile Brave แล้วล็อกอินใหม่ (Google = 1 คลิก)"
-        )
+        if not _try_env_login(ws_url):
+            raise MineAuthExpired(
+                "session 499k หมดอายุ (เจอหน้า login) — ให้ user เปิด "
+                f"{DASH_URL} ใน SyncProfile Brave แล้วล็อกอินใหม่ (Google = 1 คลิก)"
+            )
+        # auto-login สำเร็จ — หน้าเด้งกลับ dashboard แล้ว รอโหลดให้เรียบร้อย
+        expired_again = _wait_ready(ws_url)
+        if expired_again:
+            raise MineAuthExpired(
+                "auto-login ด้วย MINE_499K_* ใน .env ไม่สำเร็จ (ยังโดนเด้งกลับหน้า login) "
+                "— เช็ค .env หรือล็อกอินมือที่ " + DASH_URL
+            )
 
     now = datetime.now(TH)
     js = (
@@ -283,10 +398,28 @@ def seller_fetch() -> dict[str, Any]:
         raise MineUnavailable(f"ผลจากเบราว์เซอร์ไม่ใช่ JSON: {raw[:200]!r}") from None
 
     if data.get("auth") == "expired":
-        raise MineAuthExpired(
-            "session 499k หมดอายุระหว่างดึง (เจอหน้า login) — ให้ user ล็อกอินใหม่ "
-            f"ที่ {DASH_URL} ใน SyncProfile Brave (Google = 1 คลิก)"
+        if not _try_env_login(ws_url):
+            raise MineAuthExpired(
+                "session 499k หมดอายุระหว่างดึง (เจอหน้า login) — ให้ user ล็อกอินใหม่ "
+                f"ที่ {DASH_URL} ใน SyncProfile Brave (Google = 1 คลิก)"
+            )
+        # ล็อกอินสำเร็จ — หน้าเด้งมาที่ dashboard แล้ว รอโหลดแล้วดึงใหม่ 1 รอบ
+        time.sleep(4)
+        js2 = (
+            FETCH_JS.replace("API_BASE", json.dumps(API_BASE))
+            .replace("MONTH", str(datetime.now(TH).month))
+            .replace("YEAR", str(datetime.now(TH).year))
         )
+        raw = _ws_eval(ws_url, js2)
+        try:
+            data = json.loads(raw)
+        except Exception:
+            raise MineUnavailable(f"ผลรอบ auto-login ไม่ใช่ JSON: {raw[:200]!r}") from None
+        if data.get("auth") == "expired":
+            raise MineAuthExpired(
+                "auto-login ด้วย MINE_499K_* ใน .env ไม่สำเร็จระหว่างดึงซ้ำ — "
+                "ล็อกอินมือที่ " + DASH_URL
+            )
     if data.get("fatal"):
         raise MineUnavailable(f"fetch ในเบราว์เซอร์ล้ม: {data['fatal']}")
 
