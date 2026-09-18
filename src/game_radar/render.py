@@ -155,6 +155,18 @@ h1{font-size:34px;font-weight:800;margin:8px 0 8px;letter-spacing:-.025em;
   color:#fff;border-radius:8px;padding:3px 8px;font-size:.75rem;font-weight:600;
   font-family:var(--num)}
 .pricebadge .off{color:#a3e635}
+.pinbtn{position:absolute;bottom:8px;right:8px;z-index:2;display:flex;align-items:center;
+  justify-content:center;width:32px;height:32px;border-radius:9px;background:rgba(0,0,0,.78);
+  color:#d7dade;font-size:17px;line-height:1;cursor:pointer;user-select:none;
+  border:1px solid rgba(255,255,255,.14);opacity:.85;transition:.15s}
+.pinbtn:hover{opacity:1;border-color:rgba(255,255,255,.3)}
+.pinbtn.on{color:#ffd24a;opacity:1}
+@media(max-width:640px){.pinbtn{width:38px;height:38px;font-size:20px}}
+#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);z-index:130;
+  background:rgba(18,20,23,.96);color:#eef0f2;border:1px solid rgba(255,255,255,.1);
+  border-radius:12px;padding:9px 16px;font-size:.85rem;opacity:0;pointer-events:none;
+  transition:.22s;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+#toast.show{opacity:1;transform:translate(-50%,0)}
 .body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:9px;flex:1}
 .name{font-weight:650;font-size:.98rem;letter-spacing:-.01em}
 .chips{display:flex;flex-wrap:wrap;gap:5px}
@@ -304,6 +316,20 @@ a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
   border-radius:10px;padding:11px;font-weight:700;font-size:13.5px;
   text-decoration:none}
 .dbtn:hover{filter:brightness(1.08)}
+.dacts{display:flex;gap:10px;flex-wrap:wrap}
+.dstar{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
+  border-radius:10px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;
+  color:var(--fg);background:var(--chip);user-select:none}
+.dstar:hover{border-color:#454952}
+.dstar.on{color:#ffd24a;border-color:rgba(255,210,74,.4)}
+.dwatch{display:inline-flex;align-items:center;gap:7px;border-radius:10px;
+  padding:10px 14px;font-size:13px;font-weight:700;text-decoration:none;
+  background:var(--accent);color:#08130c}
+.dwatch:hover{filter:brightness(1.08)}
+.dnews-item{border-top:1px solid var(--line);padding:7px 0}
+.dnews-item:first-of-type{border-top:0}
+.dnews-item a{color:var(--accent);text-decoration:none;font-size:.84rem;line-height:1.45}
+.dnews-item a:hover{text-decoration:underline}
 .warn{background:var(--chip);border:1px solid var(--line);
   border-left:3px solid var(--warm);
   border-radius:12px;padding:13px 15px;margin-bottom:20px;font-size:.84rem}
@@ -366,6 +392,7 @@ a.card:hover{border-color:#3a3d44;transform:translateY(-2px)}
   <div class="views">
     <button class="viewbtn" id="vCards" aria-pressed="true">การ์ด</button>
     <button class="viewbtn" id="vRank" aria-pressed="false">อันดับผู้เล่น</button>
+    <button class="viewbtn" id="vPins" aria-pressed="false">⭐ เกมโปรด <span id="pinN"></span></button>
   </div>
 
   <div class="bar">
@@ -436,6 +463,53 @@ const nf = new Intl.NumberFormat('th-TH');
 const esc = s => String(s).replace(/[&<>"]/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const baht = c => c == null ? '—' : '฿' + nf.format(Math.round(c / 100));
+
+// ---------- ⭐ เกมโปรด (ปักหมุด) ----------
+// เก็บใน localStorage ต่อเครื่อง — ตัวเฝ้าจริงระยะยาว = ฝั่ง 101bot (ปุ่ม 🔔 ในแผงรายละเอียด)
+const PINS_KEY = 'tg_pins_v1';
+let pins = new Set();
+let newsBlocked = false;
+try {
+  pins = new Set((JSON.parse(localStorage.getItem(PINS_KEY) || '[]') || [])
+    .map(Number).filter(n => n > 0));
+} catch (e) { pins = new Set(); }
+const isPinned = id => pins.has(Number(id));
+function updatePinN() {
+  const el = document.getElementById('pinN');
+  if (el) el.textContent = pins.size ? '(' + pins.size + ')' : '';
+}
+function savePins() {
+  try { localStorage.setItem(PINS_KEY, JSON.stringify([...pins])); } catch (e) {}
+  updatePinN();
+}
+function refreshPinUI(id) {
+  document.querySelectorAll('.pinbtn[data-pin="' + id + '"]').forEach(b => {
+    b.classList.toggle('on', isPinned(id));
+    b.textContent = isPinned(id) ? '★' : '☆';
+  });
+  const st = document.getElementById('dstar');
+  if (st && Number(st.dataset.pin) === Number(id)) {
+    st.classList.toggle('on', isPinned(id));
+    st.textContent = isPinned(id) ? '★ ปักหมุดแล้ว' : '☆ ปักหมุดเกมนี้';
+  }
+  if (view === 'pins') apply();
+}
+function togglePin(id) {
+  id = Number(id);
+  const was = pins.has(id);
+  if (was) pins.delete(id); else pins.add(id);
+  savePins();
+  refreshPinUI(id);
+  return !was;
+}
+function toast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), 1900);
+}
 
 document.getElementById('sub').textContent =
   'สแกนล่าสุด ' + META.scanned_at + ' · ' + META.total + ' เกมในเรดาร์ · Steam ' +
@@ -591,6 +665,9 @@ function card(d) {
     (d.header_image ? '<img loading="lazy" src="' + esc(d.header_image) + '" alt="">' : '') +
     (d.played_rank ? '<span class="rankbadge">#' + d.played_rank + '</span>' : '') +
     '<span class="pricebadge">' + disc + price + '</span>' +
+    '<span class="pinbtn' + (isPinned(d.appid) ? ' on' : '') + '" data-pin="' + d.appid +
+    '" role="button" aria-label="ปักหมุดเกมโปรด" title="ปักหมุดเกมโปรด">' +
+    (isPinned(d.appid) ? '★' : '☆') + '</span>' +
     '</div><div class="body">' +
     '<div class="name">' + esc(d.name) + '</div>' +
     '<div class="chips">' + modes.join('') + '</div>' +
@@ -618,7 +695,10 @@ function apply() {
   const price = document.getElementById('fPrice').value;
   const sort = document.getElementById('fSort').value;
 
-  const rows = DATA.filter(d => {
+  // โหมด ⭐ โปรด: โชว์ทุกเกมที่ปักหมุด ข้ามตัวกรองอื่น (ตั้งใจ — เกมโปรดไม่ควรหายเงียบ)
+  const src = view === 'pins' ? DATA.filter(d => isPinned(d.appid)) : DATA;
+  const rows = src.filter(d => {
+    if (view === 'pins') return true;
     if (q && !d.name.toLowerCase().includes(q)) return false;
     // มุมมองอันดับคือการเรียงตามคนเล่นล้วน ๆ ไม่เอาการตัดสินเรื่องคะแนนมากรอง
     // (ไม่งั้นเกมที่คนเล่นเยอะแต่ระบบให้ 0 จะหายไปจากอันดับทั้งที่มันอยู่อันดับต้น ๆ จริง)
@@ -662,7 +742,11 @@ function apply() {
     grid.hidden = false;
     grid.innerHTML = rows.map(card).join('');
   }
-  document.getElementById('empty').hidden = rows.length > 0;
+  const emptyEl = document.getElementById('empty');
+  emptyEl.hidden = rows.length > 0;
+  emptyEl.textContent = view === 'pins'
+    ? 'ยังไม่มีเกมโปรด — กด ☆ บนการ์ดเกมไหนก็ได้ แล้วจะมาโผล่ที่นี่'
+    : 'ไม่มีเกมที่ตรงเงื่อนไข';
 }
 
 // ---------- มุมมองอันดับผู้เล่น ----------
@@ -1026,10 +1110,13 @@ function setView(v) {
   view = v;
   document.getElementById('vCards').setAttribute('aria-pressed', String(v === 'cards'));
   document.getElementById('vRank').setAttribute('aria-pressed', String(v === 'rank'));
+  document.getElementById('vPins').setAttribute('aria-pressed', String(v === 'pins'));
   apply();
 }
 document.getElementById('vCards').addEventListener('click', () => setView('cards'));
 document.getElementById('vRank').addEventListener('click', () => setView('rank'));
+document.getElementById('vPins').addEventListener('click', () => setView('pins'));
+updatePinN();
 
 ['q', 'fOpp', 'fUnstocked', 'fFresh', 'fMode', 'fGenre', 'fPlay', 'fPrice', 'fSort'].forEach(id =>
   document.getElementById(id).addEventListener('input', apply));
@@ -1203,6 +1290,25 @@ function kvList(rows) {
     '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>').join('') + '</dl>';
 }
 
+function loadNews(d) {
+  const box = document.getElementById('dnews');
+  if (!box) return;
+  if (!isPinned(d.appid) || newsBlocked) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  box.innerHTML = '<h4>ข่าวล่าสุด (Steam)</h4><div class="dnote">กำลังโหลด…</div>';
+  fetch('https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=' + d.appid +
+    '&count=3&maxlength=160&format=json')
+    .then(r => r.json())
+    .then(j => {
+      const items = ((j.appnews || {}).newsitems || []);
+      if (!items.length) { box.hidden = true; box.innerHTML = ''; return; }
+      box.innerHTML = '<h4>ข่าวล่าสุด (Steam)</h4>' + items.map(n =>
+        '<div class="dnews-item"><a href="' + esc(n.url) + '" target="_blank" rel="noopener">' +
+        esc(n.title) + '</a></div>').join('');
+    })
+    .catch(() => { newsBlocked = true; box.hidden = true; box.innerHTML = ''; });
+}
+
 function openDrawer(appid) {
   const d = DATA.find(x => x.appid === appid);
   if (!d) return;
@@ -1244,6 +1350,14 @@ function openDrawer(appid) {
     '<div class="dbody">' +
       '<h3 class="dtitle">' + esc(d.name) + '</h3>' +
 
+      '<div class="dacts">' +
+        '<span class="dstar' + (isPinned(d.appid) ? ' on' : '') + '" id="dstar" data-pin="' +
+        d.appid + '" role="button">' + (isPinned(d.appid) ? '★ ปักหมุดแล้ว' : '☆ ปักหมุดเกมนี้') +
+        '</span>' +
+        '<a class="dwatch" data-pin="' + d.appid + '" href="https://t.me/oneoone_gaming_bot?start=pin_' +
+        d.appid + '" target="_blank" rel="noopener">🔔 ให้ 101bot เฝ้า</a>' +
+      '</div>' +
+
       '<div class="dsec"><h4>คะแนนน่าซื้อ</h4>' +
         '<div class="dscore"><b class="' + scoreClass(d.opportunity_score) + '">' +
         d.opportunity_score.toFixed(1) + '</b>' +
@@ -1261,6 +1375,7 @@ function openDrawer(appid) {
 
       '<div class="dsec"><h4>ข้อมูลเกม</h4>' + kvList(kv) + '</div>' +
       '<div class="dsec"><h4>ตลาดเช่า</h4>' + kvList(market) + '</div>' +
+      '<div class="dsec" id="dnews" hidden></div>' +
 
       ((d.notes.length || d.blockers.length) ?
         '<div class="dsec"><h4>บันทึก</h4><div class="dnote">' +
@@ -1278,6 +1393,7 @@ function openDrawer(appid) {
   document.body.style.overflow = 'hidden';
   drawer.scrollTop = 0;
   document.getElementById('dclose').addEventListener('click', closeDrawer);
+  loadNews(d);
 }
 
 function closeDrawer() {
@@ -1290,6 +1406,22 @@ scrim.addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
 
 document.addEventListener('click', e => {
+  // ⭐ ดาวโปรด: toggle ก่อนทุกลอจิกการ์ด (การ์ดเป็น <a> — ต้องกันทั้ง default และ bubble)
+  const pb = e.target.closest('.pinbtn');
+  if (pb) {
+    e.preventDefault(); e.stopPropagation();
+    const added = togglePin(Number(pb.dataset.pin));
+    toast(added ? ('⭐ ปักหมุดแล้ว — ทั้งหมด ' + pins.size + ' เกม') : 'เอาออกจากเกมโปรดแล้ว');
+    return;
+  }
+  // 🔔 ปุ่มส่งให้บอทเฝ้า: ปักหมุดในเครื่องให้ด้วย แล้วปล่อยให้ลิงก์ Telegram เปิดตามปกติ
+  const wt = e.target.closest('.dwatch');
+  if (wt) {
+    const id = Number(wt.dataset.pin);
+    if (!isPinned(id)) { pins.add(id); savePins(); refreshPinUI(id); }
+    toast('🔔 ส่งไป 101bot แล้ว');
+    return;
+  }
   // กันไม่ให้การคลิกอ่านคะแนนพาไปหน้า Steam
   if (e.target.closest('.surge')) { e.preventDefault(); e.stopPropagation(); return; }
   const card = e.target.closest('a.card');
