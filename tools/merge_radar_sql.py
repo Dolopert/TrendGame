@@ -16,7 +16,24 @@ import subprocess
 import sys
 import tempfile
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+def _repo_root() -> pathlib.Path:
+    """หาราก repo จาก cwd ก่อน (เพื่อให้รันจากสำเนาชั่วคราวได้) แล้วค่อยถอยไปใช้ตำแหน่งไฟล์
+
+    ทำไมต้องมี: ตอน rebase ตัว git จะ checkout ต้นทาง (upstream) ทับ worktree ทำให้
+    tools/ หายไปทั้งโฟลเดอร์ (เกิดจริง 23 ก.ย. 69) จึงต้องเรียกเครื่องมือนี้จากสำเนา
+    นอก repo ได้ — สำเนานั้นจะหา repo จาก cwd (สคริปต์นี้ถูกรันด้วย cwd = repo เสมอ)
+    """
+    r = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
+    )
+    if r.returncode == 0 and r.stdout.strip():
+        p = pathlib.Path(r.stdout.strip())
+        if (p / "data").exists():
+            return p
+    return pathlib.Path(__file__).resolve().parents[1]
+
+
+REPO = _repo_root()
 TABLES = ["title", "snapshot", "market_snapshot", "review_snapshot"]
 AUTO_ID = {"snapshot", "market_snapshot", "review_snapshot"}
 

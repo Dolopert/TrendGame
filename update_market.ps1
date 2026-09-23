@@ -33,6 +33,12 @@ function Say($msg) {
 try {
     Set-Location $Project
     $env:PYTHONIOENCODING = "utf-8"
+    # งานนี้รันแบบไม่มีหน้าจอ (Task Scheduler + -WindowStyle Hidden) — ถ้า git ต้องถาม
+    # credential มันจะค้างจน Task ถูกตัดที่ ExecutionTimeLimit (เคสจริง 20 ก.ย. 69:
+    # "push ขึ้นรีโป" แล้วเงียบไป = ถูกตัดกลาง push) → ปิด prompt ให้ล้มเร็วแล้วจบรอบ
+    # credential ที่เก็บไว้แล้วยังใช้ได้ปกติ (ตัวนี้ห้ามเฉพาะการ *ถาม*)
+    $env:GIT_TERMINAL_PROMPT = "0"
+    $env:GCM_INTERACTIVE    = "never"
 
     Say "pull ข้อมูลล่าสุดจากรีโป"
     git pull --rebase --autostash origin main | Out-Null
@@ -40,8 +46,23 @@ try {
         # ไฟล์ที่ generate ใหม่ทุกวัน (data/radar.sql, docs/index.html) ชนกันได้ทุกครั้งที่ cloud
         # push ข้อมูลระหว่างทาง — เคยทำ pipeline ตาย 3 วัน (21–23 ก.ย. 69) เพราะ throw ทิ้งทั้งรอบ
         # → รวมข้อมูลสองฝั่งที่ระดับ SQLite (ไม่ทิ้งฝั่งไหน) แล้วไปต่อ
-        Say "pull ชนกัน — รวมข้อมูลที่ระดับ DB (tools/merge_radar_sql.py)"
-        & $Uv run python tools/merge_radar_sql.py
+        # เครื่องมือตัวนี้อยู่ใน commit ท้องถิ่น แต่ตอน rebase git จะ checkout ต้นทาง
+        # ทับ worktree → tools/ หายทั้งโฟลเดอร์ ทำให้เรียกไม่เจอ (เกิดจริง 23 ก.ย. 69
+        # รอบ 22:00 ได้ exit 2 แล้วทิ้ง rebase ค้าง) จึงถอยไปดึงสำเนาจาก ref ท้องถิ่น
+        # "main" มารันชั่วคราว (สำเนานอกรีโปทำงานได้ เพราะเครื่องมือหาราก repo จาก cwd)
+        $toolRel  = "tools/merge_radar_sql.py"
+        $toolPath = Join-Path $Project $toolRel
+        if (-not (Test-Path $toolPath)) {
+            $toolPath = Join-Path $env:TEMP "game-radar-tools\merge_radar_sql.py"
+            New-Item -ItemType Directory -Force -Path (Split-Path $toolPath) | Out-Null
+            cmd /c "git cat-file blob main:$toolRel > `"$toolPath`""
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $toolPath)) {
+                throw "ไม่พบ $toolRel ทั้งใน worktree และใน ref main — ต้องแก้ conflict ด้วยมือ"
+            }
+            Say "ไม่พบเครื่องมือใน worktree (rebase ทับ) — ใช้สำเนาจาก ref main แทน"
+        }
+        Say "pull ชนกัน — รวมข้อมูลที่ระดับ DB ($toolRel)"
+        & $Uv run python $toolPath
         if ($LASTEXITCODE -ne 0) { throw "merge_radar_sql.py ล้มเหลว (exit $LASTEXITCODE)" }
 
         $env:GIT_EDITOR = "true"
@@ -118,7 +139,7 @@ try {
     }
 
     Say "push ขึ้นรีโป"
-    git push origin main | Out-Null
+    git -c credential.interactive=false push origin main | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "push ไม่สำเร็จ - อาจต้องเข้าไป login git ด้วยมือหนึ่งครั้ง" }
 
     Say "เสร็จเรียบร้อย"
