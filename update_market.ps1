@@ -139,7 +139,9 @@ try {
     }
 
     Say "push ขึ้นรีโป"
-    git -c credential.interactive=false push origin main | Out-Null
+    # GCM หา entry ที่เก็บไว้ไม่เจอถ้าไม่ระบุ username (เจอจริง 24 ก.ย. 69: push ล้มด้วย
+    # "Cannot prompt / unable to get password" ทั้งที่ credential อยู่ใน Credential Manager)
+    git -c credential.interactive=false -c credential.username=Dolopert push origin main | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "push ไม่สำเร็จ - อาจต้องเข้าไป login git ด้วยมือหนึ่งครั้ง" }
 
     Say "เสร็จเรียบร้อย"
