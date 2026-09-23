@@ -36,7 +36,27 @@ try {
 
     Say "pull ข้อมูลล่าสุดจากรีโป"
     git pull --rebase --autostash origin main | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "git pull ไม่สำเร็จ (exit $LASTEXITCODE)" }
+    if ($LASTEXITCODE -ne 0) {
+        # ไฟล์ที่ generate ใหม่ทุกวัน (data/radar.sql, docs/index.html) ชนกันได้ทุกครั้งที่ cloud
+        # push ข้อมูลระหว่างทาง — เคยทำ pipeline ตาย 3 วัน (21–23 ก.ย. 69) เพราะ throw ทิ้งทั้งรอบ
+        # → รวมข้อมูลสองฝั่งที่ระดับ SQLite (ไม่ทิ้งฝั่งไหน) แล้วไปต่อ
+        Say "pull ชนกัน — รวมข้อมูลที่ระดับ DB (tools/merge_radar_sql.py)"
+        & $Uv run python tools/merge_radar_sql.py
+        if ($LASTEXITCODE -ne 0) { throw "merge_radar_sql.py ล้มเหลว (exit $LASTEXITCODE)" }
+
+        $env:GIT_EDITOR = "true"
+        git rebase --continue | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            # กันเคส rebase --continue งอแงทั้งที่ conflict ถูกแก้แล้ว (เจอจริง 23 ก.ย. 69)
+            Say "rebase --continue ไม่ผ่าน — ใช้ทางสำรอง (--quit + commit บน origin/main)"
+            git rebase --quit | Out-Null
+            git commit -q -m "ข้อมูล: รวมฝั่งเครื่องบ้าน + cloud (auto-merge)"
+            if ($LASTEXITCODE -ne 0) { throw "commit หลัง merge ไม่สำเร็จ" }
+            git branch -f main HEAD | Out-Null
+            git checkout -q main | Out-Null
+        }
+        Say "รวมข้อมูลเสร็จ — ไปต่อ"
+    }
 
     Say "สร้างฐานข้อมูลใหม่จาก data/radar.sql (เอาของ cloud มาเป็นฐาน)"
     & $Uv run game-radar restore --force | Out-Null
