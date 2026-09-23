@@ -290,8 +290,10 @@ def hot_refresh_appids(
         """
         SELECT s.appid, s.played_rank, s.last_week_rank, s.ccu
         FROM snapshot s
-        JOIN (SELECT appid, MAX(id) AS mid FROM snapshot GROUP BY appid) m
-          ON m.mid = s.id AND m.appid = s.appid
+        -- 23 ก.ย. 69: เดิมใช้ MAX(id) เป็น "แถวล่าสุด" — หลัง union ข้อมูลกับ cloud (insert แถวใหม่
+        -- ต่อท้ายด้วย id ใหม่) id ไม่ได้เรียงตามเวลาแล้ว → ใช้ MAX(taken_at) ตรงความหมายกว่า
+        JOIN (SELECT appid, MAX(taken_at) AS mt FROM snapshot GROUP BY appid) m
+          ON m.mt = s.taken_at AND m.appid = s.appid
         """
     ):
         rank, lw, ccu = r["played_rank"], r["last_week_rank"], r["ccu"]
