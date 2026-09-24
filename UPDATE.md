@@ -1,6 +1,6 @@
 # UPDATE — สถานะและบันทึกการตัดสินใจ
 
-เอกสารส่งต่อสำหรับ session ถัดไป · อัปเดตล่าสุด **18 ก.ย. 2026**
+เอกสารส่งต่อสำหรับ session ถัดไป · อัปเดตล่าสุด **24 ก.ย. 2026**
 
 `README.md` บอก *วิธีใช้* · `CONTEXT.md` บอก *คำศัพท์* · ไฟล์นี้บอก **สถานะปัจจุบัน
 เหตุผลเบื้องหลังการตัดสินใจ และกับดักที่เคยเสียเวลาไปแล้ว** อ่านไฟล์นี้ก่อนแก้อะไร
@@ -26,7 +26,7 @@
 | เวลา (ไทย) | รันที่ไหน | ทำอะไร | ต้องเปิดคอม | ตรงเวลาไหม |
 |---|---|---|---|---|
 | 03:00 · 09:00 · 15:00 · 21:00 | GitHub Actions | Steam → dashboard → push | ไม่ต้อง | **หน่วง 43 นาที – 3.5 ชม.** |
-| 22:00 | เครื่องบ้าน (Task Scheduler) | ตลาดเช่า **+ Steam** → dashboard → push | ต้อง (ปลุกจาก sleep ได้ถ้าเสียบปลั๊ก) | ตรงทุกครั้ง |
+| 07:00 · 12:00 · 17:00 · 22:00 | เครื่องบ้าน (Task Scheduler) | ตลาดเช่า **+ Steam** → dashboard → push | ต้อง (ปลุกจาก sleep ได้ถ้าเสียบปลั๊ก) | ตรงทุกครั้ง |
 
 > **แก้บันทึกเดิม: cron ของ GitHub *รัน* แล้ว แต่หน่วงหนัก**
 >
@@ -43,7 +43,8 @@
 > ข้อมูลซ้อนกันไม่เสียหาย (snapshot มี unique index ที่ `appid+taken_at`)
 >
 > **เวลาที่หน่วงมั่วมีผลกับหน้าแนวโน้มรายวัน** (ดู 3.5) เพราะการเทียบต้องใช้จุดที่
-> ชั่วโมงไทยใกล้กัน ถ้าอยากให้แน่นอนต้องเพิ่ม trigger ให้ task เครื่องบ้านเป็น 4 รอบ/วัน
+> ชั่วโมงไทยใกล้กัน ⇒ **แก้แล้ว 23 ก.ย. 2026:** task เครื่องบ้านตั้ง trigger 4 รอบ/วัน
+> (07:00 · 12:00 · 17:00 · 22:00) · บริบทว่าทำไมท่อเคยตาย 3 วัน + วิธีกันซ้ำ: §4.9
 
 - เว็บ: https://dolopert.github.io/TrendGame/docs/index.html
 - repo: https://github.com/Dolopert/TrendGame (public · Pages ใช้ branch `main` folder `/ (root)`)
@@ -409,6 +410,31 @@ restore ก็หายไปเลย — Steam 9 รอบเหลือ 7 ·
 
 **ถ้ารัน `scan` ด้วยมือ ต้อง `dump` แล้ว commit ทันที** ไม่งั้นถือว่ายังไม่มีอยู่จริง
 
+### 4.9 ท่อข้อมูลตาย 3 วัน (20–24 ก.ย. 2026) — ไฟล์ที่ generate ชนกันต้อง union ที่ระดับ DB เท่านั้น
+
+**ไทม์ไลน์ที่เกิดจริง:** รอบ 20 ก.ย. 22:14 เก็บข้อมูล + commit ครบ (`0f92cb6` — รวมแถวตลาด 499k 41 แถว) แต่ **push ถูกฆ่ากลางทาง** — Task ตั้ง `ExecutionTimeLimit = PT15M` และรอบนั้นใช้ไป 14 นาที (log มีบรรทัด "push ขึ้นรีโป" แต่ **ไม่มี** "เสร็จเรียบร้อย" = process ถูกตัด ไม่ใช่ git พัง) ⇒ commit อยู่แค่เครื่องบ้าน · คืน 21 · 22 · 23 ก.ย. `git pull --rebase` ชนที่ `data/radar.sql` + `docs/index.html` ทุกรอบ แล้วสคริปต์ throw ทิ้งทั้งรอบ ⇒ **ตลาด 3 คืนนั้นไม่ถูกเก็บเลย และกู้ไม่ได้** (499k ไม่มี API ย้อนหลัง · cloud เข้าไม่ได้เพราะ Cloudflare)
+
+**ห้ามเด็ดขาด:** `checkout --ours/--theirs` หรือ `rebase --skip` กับสองไฟล์ที่ generate — เลือกฝั่งไหนข้อมูลอีกฝั่งหายถาวร (ฝั่ง cloud = เสียแถวตลาดที่กู้ไม่ได้ · ฝั่งบ้าน = เสียหลายพันแถวของ cloud) และรอบถัดไป restore จาก dump ที่ทับแล้ว = ฝั่ง remote หายตามไปด้วย
+
+**เครื่องมือถาวร `tools/merge_radar_sql.py`** (เรียกเมื่อ pull ชน): อ่าน stage `:2`/`:3` ของ `data/radar.sql` → โหลดสองฝั่งเป็น SQLite แยก → `INSERT OR IGNORE` **โดยไม่ยกคอลัมน์ `id`** (ยกมาด้วย = id ชนกันแล้วแถวคนละฝั่งถูกกลืนเงียบ ๆ) → ซ่อม `sqlite_sequence = max(rowid)` → dump ทับ + `git add` ให้ · `docs/index.html` = `checkout --ours` แล้ว regen ด้วย `dash` (ห้ามแก้มือ)
+**ตรวจก่อน `rebase --continue` เสมอ:** จำนวนแถวรวม = ของ stage `:2` + แถวที่ stage `:3` มีแต่ `:2` ไม่มี · `PRAGMA integrity_check` = ok · ไม่มี `<<<<<<<` · แถวตลาดเครื่องบ้าน (41 แถว @ 20 ก.ย.) ยังครบ
+
+**กับดักซ้ำที่เจอตอนแก้:** ตอน rebase git checkout ต้นทางทับ worktree ทำให้ `tools/` (อยู่ใน commit ท้องถิ่น) หายทั้งโฟลเดอร์ → รอบ 23 ก.ย. 22:00 exit 2 · ps1 จึงถอยไปดึงสำเนาจาก ref `main` มารันชั่วคราวเอง (แก้แล้ว)
+
+**ผลข้างเคียงหลัง union: `id` ไม่เรียงตามเวลาอีก** → ที่ไหนหา "แถวล่าสุด" ด้วย `MAX(id)` ต้องเป็น `MAX(taken_at)` (แก้ `db.py` แล้ว — กระทบ query ของ 424 appid)
+
+**ปิดเคส:** รอบอัตโนมัติกลับมาปกติ (24 ก.ย. 03:21 · 07:00 จบ "เสร็จเรียบร้อย" + push ขึ้นจริง) · commit ที่เกือบหายเก็บเป็น branch `backup/home-0f92cb6` · **ยังไม่เคยทำงานจริง:** เส้น auto-merge ของ ps1 ในรอบที่ชนเองหลังแก้ครบ (รอบถัดมาทั้งหมด pull ไม่ชน) — รอบแรกที่ชนจะเป็นการทดสอบจริง
+
+### 4.10 push ที่จะเชื่อได้ ต้อง "ตรวจ" — กับดัก git/GCM สองข้อ
+
+- **GCM หา credential ไม่เจอถ้าไม่ระบุ username (เจอจริง 24 ก.ย.):** push ล้มด้วย `fatal: Cannot prompt because user interactivity has been disabled` / `unable to get password from user` **ทั้งที่** `cmdkey /list` เห็น `git:https://github.com` อยู่ — repo public ทำให้ `fetch` ผ่านแบบไม่ต้อง auth จึงดูเหมือน git ปกติ แต่ `push` ต้องให้ GCM ชี้ entry และมันหาไม่เจอถ้าไม่รู้ username → แก้: `git config credential.username Dolopert` (ตั้งใน repo แล้ว) + push แบบ `git -c credential.interactive=false -c credential.username=Dolopert push origin main`
+- **รันอัตโนมัติห้ามค้างรอ prompt:** ps1 ตั้ง `GIT_TERMINAL_PROMPT=0` + `GCM_INTERACTIVE=never` ให้ล้มเร็วแล้วจบรอบ — ถ้าค้างจะถูก ExecutionTimeLimit ฆ่าแบบเคส 20 ก.ย.
+
+**วิธีตรวจว่า push ขึ้นจริง (ทำทุกครั้งที่สงสัย):**
+1. `git rev-parse main` เทียบ `git ls-remote origin main` — ต้องตรงกัน
+2. `.git/logs/refs/remotes/origin/main` ต้องมีบรรทัด `update by push` ของรอบนั้น
+3. `tail update_market.log` — รอบที่จบดีมีทั้งบรรทัดเริ่ม ("pull ข้อมูลล่าสุด…") และบรรทัดจบ ("เสร็จเรียบร้อย" / "ล้มเหลว: …") · รอบที่มีแต่บรรทัดกลางแล้วเงียบ = ถูก process ฆ่า → กลับไปดู ExecutionTimeLimit (§4.9)
+
 ---
 
 ## 5. งานที่ค้างอยู่ เรียงตามผลที่จะได้
@@ -426,7 +452,7 @@ restore ก็หายไปเลย — Steam 9 รอบเหลือ 7 ·
    Task `\GameRadar-Market` ตั้ง trigger **07:00 · 12:00 · 17:00 · 22:00** (เดิมรอบเดียว 22:00)
    + `StartWhenAvailable` + `MultipleInstances=IgnoreNew` · ยังรันแบบ `-WindowStyle Hidden` ไม่เด้งหน้าต่าง
    ⇒ ได้จุดเทียบที่ชั่วโมงตรงกันทุกวันสำหรับหน้าแนวโน้มรายวัน
-   ⚠️ ต้องเคลียร์ merge/rebase ค้าง (`UU data/radar.sql`, `UU docs/index.html`) ให้จบก่อน ไม่งั้นรอบถัดไป `git pull --rebase` จะ throw แล้ว pipeline หยุดทั้งรอบ (ดูบันทึกด้านล่าง)
+   ✅ merge/rebase ที่ค้างเคลียร์จบแล้ว (23–24 ก.ย.) — ท่อมี auto-resolver รวมข้อมูลกันชนเองในตัว · บันทึกเต็ม + กับดัก: §4.9
 
 4. **เทียบชั่วโมงเล่นกับดีมานด์จริง** พอมี `busy[]` หรือข้อมูลสะสมพอ จะรู้ว่าควรใส่
    ชั่วโมงเล่นเข้าสูตรหรือไม่ และใส่ทางไหน (ยาว = ดี หรือ สั้น = ดี)
@@ -455,7 +481,8 @@ src/game_radar/
   cli.py      scan · market · mine · dash · top · dump · restore · run · stock
 
 setup_scheduler.ps1   ตั้ง Task Scheduler
-update_market.ps1     งานที่ task เรียก (market + scan + dash + push)
+update_market.ps1     งานที่ task เรียก (market + scan + dash + push + auto-merge เมื่อ pull ชน)
+tools/merge_radar_sql.py   รวม data/radar.sql สองฝั่งที่ระดับ SQLite (ตอน pull ชน — §4.9)
 probe_499k_api.py     ตรวจ API 499k — GET ล้วน ไม่แตะ endpoint ที่ตัดเงิน
 .github/workflows/daily.yml   งานบน cloud
 
