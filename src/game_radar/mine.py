@@ -294,6 +294,33 @@ AUTO_LOGIN_JS = """
 """
 
 
+def _left_signin(ws_url: str, tries: int = 3) -> bool | None:
+    """หลัง submit login: True ถ้าหน้าออกจาก /user/sign-in แล้ว (ทน context พังตอน navigate)
+
+    จำเป็นเพราะ login สำเร็จ = หน้า navigate ทันที → ค่าที่ JS return ไม่ถึงเรา (ดูเหมือนล้มเหลว)
+    """
+    import websocket  # noqa: PLC0415
+
+    for _ in range(tries):
+        try:
+            ws = websocket.create_connection(ws_url, timeout=15)
+            try:
+                ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                    "params": {"expression": "location.pathname", "returnByValue": True}}))
+                while True:
+                    m = json.loads(ws.recv())
+                    if m.get("id") == 1:
+                        p = m.get("result", {}).get("result", {}).get("value")
+                        if isinstance(p, str):
+                            return not p.startswith("/user/sign-in")
+            finally:
+                ws.close()
+        except Exception:
+            pass
+        time.sleep(1.5)
+    return None
+
+
 def _try_env_login(ws_url: str) -> bool:
     """พยายามล็อกอินอัตโนมัติด้วย env credentials ผ่านหน้า login ปัจจุบัน
 
@@ -324,8 +351,11 @@ def _try_env_login(ws_url: str) -> bool:
             try:
                 out = json.loads(raw)
             except Exception:
-                return False
-            return bool(out.get("ok"))
+                out = None
+            if isinstance(out, dict):
+                return bool(out.get("ok"))
+            # eval ถูกตัดกลางทาง (login สำเร็จ = หน้า navigate ทันที) — เช็คสถานะหน้าจริงซ้ำ
+            return _left_signin(ws_url) is True
     finally:
         ws.close()
 

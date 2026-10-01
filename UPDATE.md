@@ -435,6 +435,8 @@ restore ก็หายไปเลย — Steam 9 รอบเหลือ 7 ·
 2. `.git/logs/refs/remotes/origin/main` ต้องมีบรรทัด `update by push` ของรอบนั้น
 3. `tail update_market.log` — รอบที่จบดีมีทั้งบรรทัดเริ่ม ("pull ข้อมูลล่าสุด…") และบรรทัดจบ ("เสร็จเรียบร้อย" / "ล้มเหลว: …") · รอบที่มีแต่บรรทัดกลางแล้วเงียบ = ถูก process ฆ่า → กลับไปดู ExecutionTimeLimit (§4.9)
 
+- **auto-login สำเร็จ แต่โค้ดอ่านผลไม่ได้ — อย่าตัดสินจากค่า eval เดียว (เจอจริง 1 ต.ค. 69):** ล็อกอินด้วยรหัส (`_try_env_login` ฝั่ง mine + `try_env_login` ฝั่ง shop_watch) — พอรหัสถูก หน้าเว็บ **navigate ทันทีที่ submit** → `Runtime.evaluate` ถูกตัดกลางทาง → ค่า return หาย → โค้ดเดิมรายงาน False / `fail:no-json` **ทั้งที่ล็อกอินผ่านแล้ว** (พร้อมมาร์ค autologin-fail 6 ชม. = ปิดทางกู้ตัวเอง) → แก้: เมื่อผลไม่ใช่ JSON ให้เช็ค `location.pathname` ซ้ำ — ออกจาก `/user/sign-in` = นับสำเร็จ (`_left_signin()`; verify ด้วย browser context แยกแล้ว 1 ต.ค. 69)
+
 ---
 
 ## 5. งานที่ค้างอยู่ เรียงตามผลที่จะได้
