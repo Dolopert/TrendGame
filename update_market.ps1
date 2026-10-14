@@ -17,10 +17,14 @@
 # ขั้น restore --force คือหัวใจ เพราะต้องเอาข้อมูลที่ cloud เก็บไว้มาเป็นฐานก่อน
 # ถ้าข้ามไป ตอน dump จะเขียนทับด้วยฐานข้อมูลเก่าในเครื่อง แล้วข้อมูลของ cloud หายทันที
 
-param([switch]$NoPush)
+# -TestFunctionsOnly: โหลดแค่ตัวแปร+ฟังก์ชันแล้วหยุด (ใช้โดย tools/test_update_market_git.ps1 เท่านั้น)
+param(
+    [switch]$NoPush,
+    [string]$Project = "C:\Users\diffy\Desktop\Claudex\game-radar",
+    [switch]$TestFunctionsOnly
+)
 
 $ErrorActionPreference = "Stop"
-$Project = "C:\Users\diffy\Desktop\Claudex\game-radar"
 $Uv      = "C:\Users\diffy\.local\bin\uv.exe"
 $Log     = Join-Path $Project "update_market.log"
 
@@ -29,6 +33,126 @@ function Say($msg) {
     $line
     Add-Content -Path $Log -Value $line -Encoding utf8
 }
+
+# บรรทัดท้ายจาก git จริง (ตัด hint: ออก) — ให้ log/error บอกสาเหตุจริง ไม่ต้องเดา
+# (เคส 7–14 ต.ค. 69: push ล้มด้วย non-fast-forward แต่ข้อความเดิมบอกให้ไป login git)
+function Get-GitTail($out) {
+    $lines = @($out | ForEach-Object { "$_" } | Where-Object { $_ -and $_ -notmatch '^hint:' })
+    ($lines | Select-Object -Last 2) -join " | "
+}
+
+# ทุกฟังก์ชัน git ข้างล่างตั้ง ErrorActionPreference = Continue เฉพาะในฟังก์ชัน:
+# PS 5.1 แปลง stderr ของ git (2>&1) เป็น ErrorRecord — ถ้าเป็น Stop จะ throw ทั้งที่ git
+# สำเร็จ (git เขียน progress ลง stderr ตลอด) จึงเช็ค $LASTEXITCODE เองทุกจุดแทน
+
+# เศษสถานะจากรอบที่ถูกตัดกลางทาง (rebase ค้าง / HEAD detached) ต้องเคลียร์ก่อน sync
+# ไม่งั้นรอบต่อ ๆ ไปจะล้มต่อกันหรือ commit ลง HEAD ลอย ๆ ที่ไม่มี branch ไหนถือ
+function Repair-LeftoverState {
+    $ErrorActionPreference = "Continue"
+    $gitDir = Join-Path $Project ".git"
+    if ((Test-Path (Join-Path $gitDir "rebase-merge")) -or (Test-Path (Join-Path $gitDir "rebase-apply"))) {
+        Say "พบ rebase ค้างจากรอบก่อน — rebase --abort กลับสถานะเดิม"
+        $out = git rebase --abort 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "rebase --abort ไม่สำเร็จ: $(Get-GitTail $out)" }
+    }
+    git symbolic-ref --short -q HEAD 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        # เก็บ sha ไว้ใน branch สำรองก่อนออก — commit บน HEAD ลอยจะได้ไม่กลายเป็น dangling
+        $sha    = "$(git rev-parse HEAD)".Trim()
+        $backup = "backup/detached-" + (Get-Date -Format "yyyyMMdd-HHmmss")
+        $out = git branch $backup $sha 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "สร้าง $backup ไม่สำเร็จ: $(Get-GitTail $out)" }
+        Say "HEAD detached ค้างที่ $sha — เก็บไว้ที่ $backup แล้วกลับ main"
+        $out = git checkout main 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "checkout main ไม่สำเร็จ: $(Get-GitTail $out)" }
+    }
+}
+
+# ดึงของใหม่จาก origin/main ด้วย merge (เลิกใช้ pull --rebase)
+# ทำไม: rebase เขียน commit ท้องถิ่นใหม่ทีละตัว — เคส 7–14 ต.ค. 69 ทางสำรองหลัง rebase
+# ย้าย main ไป chain ที่ replay ไม่ครบ ข้อมูลตลาดหายหลายวัน ส่วน merge ไม่แตะ commit เดิม
+# และ main ขยับเฉพาะตอน commit สำเร็จ → ล้มเมื่อไหร่ merge --abort ก็กลับ main เดิมครบ
+# ห้ามแตะ branch ref ตรง ๆ ในฟังก์ชันนี้ (ไม่ย้าย ref เอง ไม่ checkout)
+function Invoke-Sync {
+    $ErrorActionPreference = "Continue"
+    # ไม่นับไฟล์ untracked (เช่น log) — มันไม่ขวาง merge และ stash ปกติก็ไม่เก็บอยู่แล้ว
+    if (git status --porcelain --untracked-files=no) {
+        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $out = git stash push -m "ps1 autostash $stamp" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "git stash ไม่สำเร็จ: $(Get-GitTail $out)" }
+        # ไม่ pop เอง — ของที่ค้างมักเป็นไฟล์ generate ที่จะชนซ้ำ ให้คนดูด้วย git stash list
+        Say "worktree มีของค้าง — stash ไว้ (ps1 autostash $stamp) ไม่ pop อัตโนมัติ"
+    }
+
+    $out = git fetch origin main 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "git fetch ล้มเหลว: $(Get-GitTail $out)" }
+
+    $behind = [int]"$(git rev-list --count HEAD..origin/main)"
+    if ($behind -eq 0) { return }
+
+    $out = git merge --no-edit origin/main 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Say "รวม origin/main แล้ว ($behind commit ใหม่)"
+        return
+    }
+    if (-not (git ls-files -u)) { throw "git merge ล้มเหลว (ไม่ใช่ conflict): $(Get-GitTail $out)" }
+
+    # ไฟล์ที่ generate ใหม่ทุกวัน (data/radar.sql, docs/index.html) ชนกันได้ทุกครั้งที่ cloud
+    # push ข้อมูลระหว่างทาง — เคยทำ pipeline ตาย 3 วัน (21–23 ก.ย. 69) เพราะ throw ทิ้งทั้งรอบ
+    # → รวมข้อมูลสองฝั่งที่ระดับ SQLite (ไม่ทิ้งฝั่งไหน) แล้วไปต่อ
+    # เครื่องมือตัวนี้อยู่ใน commit ท้องถิ่น แต่ตอน rebase git จะ checkout ต้นทาง
+    # ทับ worktree → tools/ หายทั้งโฟลเดอร์ ทำให้เรียกไม่เจอ (เกิดจริง 23 ก.ย. 69
+    # รอบ 22:00 ได้ exit 2 แล้วทิ้ง rebase ค้าง) จึงถอยไปดึงสำเนาจาก ref ท้องถิ่น
+    # "main" มารันชั่วคราว (สำเนานอกรีโปทำงานได้ เพราะเครื่องมือหาราก repo จาก cwd)
+    $toolRel  = "tools/merge_radar_sql.py"
+    $toolPath = Join-Path $Project $toolRel
+    if (-not (Test-Path $toolPath)) {
+        $toolPath = Join-Path $env:TEMP "game-radar-tools\merge_radar_sql.py"
+        New-Item -ItemType Directory -Force -Path (Split-Path $toolPath) | Out-Null
+        cmd /c "git cat-file blob main:$toolRel > `"$toolPath`""
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $toolPath)) {
+            git merge --abort 2>&1 | Out-Null
+            throw "ไม่พบ $toolRel ทั้งใน worktree และใน ref main — merge --abort แล้ว ต้องแก้ conflict ด้วยมือ"
+        }
+        Say "ไม่พบเครื่องมือใน worktree — ใช้สำเนาจาก ref main แทน"
+    }
+    Say "merge ชนกัน — รวมข้อมูลที่ระดับ DB ($toolRel)"
+    & $Uv run python $toolPath
+    if ($LASTEXITCODE -ne 0) {
+        $code = $LASTEXITCODE
+        git merge --abort 2>&1 | Out-Null
+        throw "merge_radar_sql.py ล้มเหลว (exit $code) — merge --abort กลับ main เดิมแล้ว"
+    }
+
+    git add data/radar.sql docs/index.html 2>&1 | Out-Null
+    $out = git commit --no-edit 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        git merge --abort 2>&1 | Out-Null
+        throw "commit หลัง merge ไม่สำเร็จ — merge --abort กลับ main เดิมแล้ว: $(Get-GitTail $out)"
+    }
+    Say "รวมข้อมูลเสร็จ — ไปต่อ"
+}
+
+# push ล้มส่วนใหญ่เพราะ cloud push แทรกระหว่าง sync→push (non-fast-forward)
+# → ดึงของใหม่มารวมแล้วลองซ้ำ แทนที่จะ throw ทิ้งทั้งรอบ
+function Invoke-PushWithRetry {
+    $ErrorActionPreference = "Continue"
+    $max = 3
+    for ($i = 1; $i -le $max; $i++) {
+        # GCM หา entry ที่เก็บไว้ไม่เจอถ้าไม่ระบุ username (เจอจริง 24 ก.ย. 69: push ล้มด้วย
+        # "Cannot prompt / unable to get password" ทั้งที่ credential อยู่ใน Credential Manager)
+        $out = git -c credential.interactive=false -c credential.username=Dolopert push origin main 2>&1
+        if ($LASTEXITCODE -eq 0) { return }
+        $tail = Get-GitTail $out
+        Say "push รอบ $i/$max ไม่ผ่าน — git: $tail"
+        if ($i -eq $max) { break }
+        Say "ดึงของใหม่ (fetch+merge) แล้วลอง push ซ้ำ"
+        Invoke-Sync
+    }
+    throw "push ไม่สำเร็จครบ $max รอบ — git: $tail"
+}
+
+if ($TestFunctionsOnly) { return }
 
 try {
     Set-Location $Project
@@ -39,45 +163,11 @@ try {
     # credential ที่เก็บไว้แล้วยังใช้ได้ปกติ (ตัวนี้ห้ามเฉพาะการ *ถาม*)
     $env:GIT_TERMINAL_PROMPT = "0"
     $env:GCM_INTERACTIVE    = "never"
+    $env:GIT_EDITOR         = "true"
 
+    Repair-LeftoverState
     Say "pull ข้อมูลล่าสุดจากรีโป"
-    git pull --rebase --autostash origin main | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        # ไฟล์ที่ generate ใหม่ทุกวัน (data/radar.sql, docs/index.html) ชนกันได้ทุกครั้งที่ cloud
-        # push ข้อมูลระหว่างทาง — เคยทำ pipeline ตาย 3 วัน (21–23 ก.ย. 69) เพราะ throw ทิ้งทั้งรอบ
-        # → รวมข้อมูลสองฝั่งที่ระดับ SQLite (ไม่ทิ้งฝั่งไหน) แล้วไปต่อ
-        # เครื่องมือตัวนี้อยู่ใน commit ท้องถิ่น แต่ตอน rebase git จะ checkout ต้นทาง
-        # ทับ worktree → tools/ หายทั้งโฟลเดอร์ ทำให้เรียกไม่เจอ (เกิดจริง 23 ก.ย. 69
-        # รอบ 22:00 ได้ exit 2 แล้วทิ้ง rebase ค้าง) จึงถอยไปดึงสำเนาจาก ref ท้องถิ่น
-        # "main" มารันชั่วคราว (สำเนานอกรีโปทำงานได้ เพราะเครื่องมือหาราก repo จาก cwd)
-        $toolRel  = "tools/merge_radar_sql.py"
-        $toolPath = Join-Path $Project $toolRel
-        if (-not (Test-Path $toolPath)) {
-            $toolPath = Join-Path $env:TEMP "game-radar-tools\merge_radar_sql.py"
-            New-Item -ItemType Directory -Force -Path (Split-Path $toolPath) | Out-Null
-            cmd /c "git cat-file blob main:$toolRel > `"$toolPath`""
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $toolPath)) {
-                throw "ไม่พบ $toolRel ทั้งใน worktree และใน ref main — ต้องแก้ conflict ด้วยมือ"
-            }
-            Say "ไม่พบเครื่องมือใน worktree (rebase ทับ) — ใช้สำเนาจาก ref main แทน"
-        }
-        Say "pull ชนกัน — รวมข้อมูลที่ระดับ DB ($toolRel)"
-        & $Uv run python $toolPath
-        if ($LASTEXITCODE -ne 0) { throw "merge_radar_sql.py ล้มเหลว (exit $LASTEXITCODE)" }
-
-        $env:GIT_EDITOR = "true"
-        git rebase --continue | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            # กันเคส rebase --continue งอแงทั้งที่ conflict ถูกแก้แล้ว (เจอจริง 23 ก.ย. 69)
-            Say "rebase --continue ไม่ผ่าน — ใช้ทางสำรอง (--quit + commit บน origin/main)"
-            git rebase --quit | Out-Null
-            git commit -q -m "ข้อมูล: รวมฝั่งเครื่องบ้าน + cloud (auto-merge)"
-            if ($LASTEXITCODE -ne 0) { throw "commit หลัง merge ไม่สำเร็จ" }
-            git branch -f main HEAD | Out-Null
-            git checkout -q main | Out-Null
-        }
-        Say "รวมข้อมูลเสร็จ — ไปต่อ"
-    }
+    Invoke-Sync
 
     Say "สร้างฐานข้อมูลใหม่จาก data/radar.sql (เอาของ cloud มาเป็นฐาน)"
     & $Uv run game-radar restore --force | Out-Null
@@ -139,10 +229,7 @@ try {
     }
 
     Say "push ขึ้นรีโป"
-    # GCM หา entry ที่เก็บไว้ไม่เจอถ้าไม่ระบุ username (เจอจริง 24 ก.ย. 69: push ล้มด้วย
-    # "Cannot prompt / unable to get password" ทั้งที่ credential อยู่ใน Credential Manager)
-    git -c credential.interactive=false -c credential.username=Dolopert push origin main | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "push ไม่สำเร็จ - อาจต้องเข้าไป login git ด้วยมือหนึ่งครั้ง" }
+    Invoke-PushWithRetry
 
     Say "เสร็จเรียบร้อย"
     exit 0

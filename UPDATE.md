@@ -447,6 +447,7 @@ restore ก็หายไปเลย — Steam 9 รอบเหลือ 7 ·
 - **กู้คืน (14 ต.ค. 69 ~21:30 · verified):** enumerate ทุก commit (refs+reflog+fsck = 364 ตัว มี radar.sql 351) → กรองฝั่งเครื่องบ้าน 49 blob (dedupe by blob sha) → **union ทุกตารางของทุกเวอร์ชัน** (INSERT OR IGNORE ไม่ยก id ของตาราง auto — หลักเดียวกับ `tools/merge_radar_sql.py`) → ตลาด **+492 = 12 รอบ × 41 พอดีเป๊ะ ⇒ 8–14 ต.ค. ครบ 82 แถว/วัน** · snapshot +5,150 · review +683 · title +39 · integrity ok → ฝั่ง cloud merge เข้า local ก่อนด้วย `git merge` + union tool (`0d037fb`) แล้ว push กู้คืน `fbc614d`
 - **ไฟล์/หลักฐาน:** branch สำรอง `backup/main-20261014-pre-fix` (bb049b0) · `backup/origin-20261014-pre-fix` (2750c19) · `%LOCALAPPDATA%\Temp\gr_recover\` (49 blob + recover.py + radar_recovered.sql + สำเนาก่อนกู้)
 - **กับดัก:** (1) อย่าเชื่อข้อความ error ที่ ps1 เดาเอง — สงสัย push ให้ dry-run อ่าน stderr จริง ("auth ไม่ผ่าน" กับ "non-fast-forward" คนละเรื่อง) (2) `branch -f main HEAD` กลาง rebase = ทิ้งข้อมูลเงียบ ๆ — ห้ามพึ่ง HEAD detached ในเส้นทางอัตโนมัติ (3) dangling commit ยังกู้ได้ก่อน `git gc` — เจอเหตุอย่าลบ repo/รัน gc ทันที
+- **อัปเดต (ค่ำ 14 ต.ค. 69):** ✅ ซ่อมเส้นทางแล้ว — ps1 เลิกใช้ rebase machinery ทั้งหมด (sync = fetch+merge; ล้มทุกทาง → `merge --abort` กลับ main เดิม), push retry ≤3 รอบ, startup guard เคลียร์เศษ + สำรอง detached เป็น `backup/detached-*` · เทสต์ regression `tools/test_update_market_git.ps1` ผ่าน **8/8** (รวมฉาก "local chain 3 commit + ชน → ไม่มี commit หาย")
 
 ---
 
@@ -475,7 +476,7 @@ restore ก็หายไปเลย — Steam 9 รอบเหลือ 7 ·
 
 6. **รีวิวยังไม่ครบ** 205/727 เกม ทยอยเต็มเองรอบละ 60 เกม ไม่ต้องทำอะไร
 
-7. **(ใหม่ 14 ต.ค. 69) แข็งเส้นทาง fallback ของ `update_market.ps1` + เพิ่มตัวเฝ้าแจ้งเตือนเมื่อรอบล้ม/push ไม่ขึ้น** — เคส 4.11 พิสูจน์ว่า `branch -f main HEAD` ทิ้งข้อมูลได้เงียบ ๆ และไม่มีใครรู้ 7 วัน · เสนอ: ทำ conflict resolution แล้วกลับ main เดิม (`rebase --abort`) + commit บน main ตรง ๆ + push retry (fetch→union→push ซ้ำ ≤3) + noti รายวันเมื่อรอบล้ม · **ยังไม่แก้โค้ด — รอเจ้าของเคาะ**
+7. **(ใหม่ 14 ต.ค. 69) แข็งเส้นทาง fallback ของ `update_market.ps1` + เพิ่มตัวเฝ้าแจ้งเตือนเมื่อรอบล้ม/push ไม่ขึ้น** — เคส 4.11 พิสูจน์ว่า `branch -f main HEAD` ทิ้งข้อมูลได้เงียบ ๆ และไม่มีใครรู้ 7 วัน · เสนอ: ทำ conflict resolution แล้วกลับ main เดิม (`rebase --abort`) + commit บน main ตรง ๆ + push retry (fetch→union→push ซ้ำ ≤3) + noti รายวันเมื่อรอบล้ม · ✅ **ซ่อมเส้นทางแล้ว 14 ต.ค. 69 (ค่ำ)**: sync = fetch+merge เท่านั้น (fail ทุกทาง → `merge --abort` กลับ main เดิม ไม่มี `branch -f`/rebase machinery อีก) · push retry ≤3 รอบ (ล้ม → fetch+merge → ซ้ำ + log สาเหตุจริงจาก git) · startup เคลียร์เศษ rebase/detached (สำรอง `backup/detached-*` ก่อน) · เทสต์ regression `tools/test_update_market_git.ps1` (self-contained) **8/8 ฉาก** รวมเคส "chain 3 commit ห้ามหาย" · ค้างเฉพาะ **ตัวเฝ้าแจ้งเตือน** (รอเจ้าของเคาะ)
 
 ---
 
