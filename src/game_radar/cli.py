@@ -162,15 +162,52 @@ def cmd_stock_add(args: argparse.Namespace) -> int:
     conn = _stock(args)
     try:
         stock.add_account(
-            conn, label=args.label, email=args.email, login=args.login,
-            vault_ref=args.vault, guard_note=args.guard, note=args.note,
+            conn, label=args.label, email=args.email,
+            platform_account_id=args.pid,
+            login=args.login, vault_ref=args.vault, guard_note=args.guard,
+            note=args.note,
         )
-    except Exception as e:  # UNIQUE ชนได้ทั้ง label และ email
+    except Exception as e:  # UNIQUE ชนได้ทั้ง label, email และ platform_account_id
         print(f"เพิ่มไม่ได้: {e}", file=sys.stderr)
         return 1
-    print(f"เพิ่มไอดี {args.label} ({args.email}) แล้ว")
+    where = f"pid {args.pid}" if args.pid else "ยังไม่ขึ้นร้าน (ไอดีเปล่า)"
+    print(f"เพิ่มไอดี {args.label} ({args.email or 'ยังไม่ผูกอีเมล'}) · {where}")
     if not args.vault:
         print("  เตือน: ยังไม่ได้ระบุ --vault ว่ารหัสผ่านอยู่รายการไหนใน password manager")
+    return 0
+
+
+def cmd_stock_link(args: argparse.Namespace) -> int:
+    """ผูกอีเมล ↔ ไอดีที่รู้ตัว — ทางเชื่อม password.txt กับหลังบ้านโดยไม่ต้องเปิดไฟล์"""
+    conn = _stock(args)
+    a = _need_account(conn, args.account)
+    if a is None:
+        return 1
+    try:
+        if args.email:
+            ok = stock.link_email(conn, args.account, args.email)
+        else:
+            ok = stock.link_platform(conn, args.account, args.pid)
+    except Exception as e:  # UNIQUE — อีเมล/pid นี้ถูกใช้กับไอดีอื่นแล้ว
+        print(f"ผูกไม่ได้: {e}", file=sys.stderr)
+        return 1
+    if not ok:
+        print(f"ไม่พบไอดี {args.account}", file=sys.stderr)
+        return 1
+    print("ผูกแล้ว")
+    return 0
+
+
+def cmd_stock_blank(args: argparse.Namespace) -> int:
+    """ไอดีเปล่า = ยังไม่ขึ้นร้าน — พร้อมเอาไปออกเกมใหม่"""
+    conn = _stock(args)
+    rows = stock.blank_accounts(conn)
+    if not rows:
+        print("ไม่มีไอดีเปล่า — ทุกไอดีขึ้นร้านแล้ว")
+        return 0
+    print(f"\nไอดีเปล่า {len(rows)} ตัว (ยังไม่ขึ้นร้าน):")
+    for a in rows:
+        print(f"  {a['label']:<8} {a['email'] or 'ยังไม่ผูกอีเมล':<34} {a['note'] or ''}")
     return 0
 
 
@@ -244,8 +281,12 @@ def cmd_stock_list(args: argparse.Namespace) -> int:
         a, busy = it["row"], it["busy"]
         if a["status"] != "active":
             state = a["status"]
+        elif a["platform_account_id"] is None:
+            state = "ยังไม่ขึ้นร้าน"
         elif busy is not None:
             state = f"เช่าถึง {busy['ends_on'][5:]}"
+        elif a["platform_status"] == "rented":
+            state = "เช่าอยู่ (แพลตฟอร์ม)"
         else:
             state = "ว่าง"
         games = ", ".join(g["game_name"] or str(g["appid"]) for g in it["games"]) or "-"
@@ -254,10 +295,14 @@ def cmd_stock_list(args: argparse.Namespace) -> int:
 
     total_cost = sum(i["cost"] for i in items)
     total_rev = sum(i["revenue"] for i in items)
-    free = sum(1 for i in items if i["busy"] is None and i["row"]["status"] == "active")
+    free = sum(1 for i in items
+               if i["busy"] is None and i["row"]["status"] == "active"
+               and i["row"]["platform_account_id"] is not None
+               and i["row"]["platform_status"] != "rented")
+    blanks = sum(1 for i in items if i["row"]["platform_account_id"] is None)
     print("-" * 86)
-    print(f"ไอดีทั้งหมด {len(items)} · ว่าง {free} · ทุนรวม {total_cost:,.0f} "
-          f"· รายได้รวม {total_rev:,.0f} บาท")
+    print(f"ไอดีทั้งหมด {len(items)} · ว่าง {free} · ยังไม่ขึ้นร้าน {blanks} "
+          f"· ทุนรวม {total_cost:,.0f} · รายได้รวม {total_rev:,.0f} บาท")
 
     late = stock.overdue_rentals(conn)
     if late:
@@ -449,12 +494,22 @@ def main(argv: list[str] | None = None) -> int:
 
     q = ssub.add_parser("add", help="เพิ่มไอดีใหม่")
     q.add_argument("label", help="ชื่อเรียกในร้าน เช่น A01")
-    q.add_argument("email", help="อีเมลที่ผูกกับ Steam")
+    q.add_argument("email", nargs="?", help="อีเมลที่ผูกกับ Steam (ไม่ใส่ = ยังไม่รู้)")
+    q.add_argument("--pid", type=int, help="id ไอดีบนแพลตฟอร์ม 499k (ไม่ใส่ = ยังไม่ขึ้นร้าน)")
     q.add_argument("--login", help="ชื่อบัญชี Steam (ห้ามใส่รหัสผ่าน)")
     q.add_argument("--vault", help="ชื่อรายการใน password manager ที่เก็บรหัสจริง")
     q.add_argument("--guard", help="Steam Guard authenticator อยู่เครื่องไหน")
     q.add_argument("--note")
     q.set_defaults(func=cmd_stock_add)
+
+    q = ssub.add_parser("link", help="ผูกอีเมลหรือ id แพลตฟอร์มให้ไอดีที่รู้ตัวแล้ว")
+    q.add_argument("account", help="ชื่อไอดี เช่น A01")
+    q.add_argument("email", nargs="?", help="อีเมลที่ผูกกับ Steam")
+    q.add_argument("--pid", type=int, help="id ไอดีบนแพลตฟอร์ม 499k")
+    q.set_defaults(func=cmd_stock_link)
+
+    q = ssub.add_parser("blank", help="ไอดีเปล่า: ยังไม่ขึ้นร้าน เหลือกี่ตัว")
+    q.set_defaults(func=cmd_stock_blank)
 
     q = ssub.add_parser("buy", help="บันทึกเกมที่ซื้อเข้าไอดี")
     q.add_argument("account", help="ชื่อไอดี เช่น A01")

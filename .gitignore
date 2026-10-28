@@ -28,3 +28,7 @@ rental.csv
 
 # ผลดิบจาก probe — มีข้อมูลร้าน ไม่ต้องขึ้น git
 probe_499k_result.json
+
+# ไฟล์ที่มีข้อมูล sensitive — ห้ามขึ้น git
+data/steam_creds.*
+data/roster.*

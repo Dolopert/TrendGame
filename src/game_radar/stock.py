@@ -28,7 +28,12 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS account (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     label       TEXT NOT NULL UNIQUE,   -- ชื่อเรียกในร้าน เช่น A01
-    email       TEXT NOT NULL UNIQUE,   -- อีเมลที่ผูกกับ Steam
+    -- อีเมลที่ผูกกับ Steam — กุญแจเชื่อมกับ password.txt/alias; ว่างได้ตอนยังไม่รู้
+    email       TEXT UNIQUE,
+    -- id ของไอดีบนแพลตฟอร์ม 499k — NULL = ยังไม่ขึ้นร้าน (ไอดีเปล่า/ยังไม่เปิดขาย)
+    platform_account_id INTEGER UNIQUE,
+    -- สถานะล่าสุดที่แพลตฟอร์มบอก (available/rented)
+    platform_status TEXT,
     login       TEXT,                   -- ชื่อบัญชี Steam (ไม่ใช่รหัสผ่าน)
     vault_ref   TEXT,                   -- ชื่อรายการใน password manager เท่านั้น
     status      TEXT NOT NULL DEFAULT 'active',  -- active | paused | retired
@@ -82,8 +87,23 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
     return conn
+
+
+# คอลัมน์ที่เพิ่มทีหลัง — CREATE TABLE IF NOT EXISTS ไม่แตะตารางเดิม
+_LATER_COLUMNS = {
+    "platform_account_id": "INTEGER",
+    "platform_status": "TEXT",
+}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(account)")}
+    for name, typ in _LATER_COLUMNS.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE account ADD COLUMN {name} {typ}")
 
 
 def _d(s: str) -> date:
@@ -94,14 +114,50 @@ def _d(s: str) -> date:
 
 def add_account(conn: sqlite3.Connection, **kw: Any) -> int:
     cur = conn.execute(
-        """INSERT INTO account (label, email, login, vault_ref, guard_note,
-                                created_on, note)
-           VALUES (:label, :email, :login, :vault_ref, :guard_note, :created_on, :note)""",
-        {"created_on": today(), "login": None, "vault_ref": None,
+        """INSERT INTO account (label, email, platform_account_id, platform_status,
+                                login, vault_ref, guard_note, created_on, note)
+           VALUES (:label, :email, :platform_account_id, :platform_status,
+                   :login, :vault_ref, :guard_note, :created_on, :note)""",
+        {"created_on": today(), "email": None, "platform_account_id": None,
+         "platform_status": None, "login": None, "vault_ref": None,
          "guard_note": None, "note": None, **kw},
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+def link_email(conn: sqlite3.Connection, label: str, email: str) -> bool:
+    """ผูกอีเมลให้ไอดี (กุญแจเชื่อมกับ password.txt / alias ของโดเมน)"""
+    cur = conn.execute("UPDATE account SET email = ? WHERE label = ?", (email, label))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def link_platform(conn: sqlite3.Connection, label: str, platform_account_id: int) -> bool:
+    """ผูกไอดีในคลังกับ id บนแพลตฟอร์ม 499k (NULL = ยังไม่ขึ้นร้าน)"""
+    cur = conn.execute(
+        "UPDATE account SET platform_account_id = ? WHERE label = ?",
+        (platform_account_id, label),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def set_platform_status(conn: sqlite3.Connection, platform_account_id: int, status: str) -> None:
+    conn.execute(
+        "UPDATE account SET platform_status = ? WHERE platform_account_id = ?",
+        (status, platform_account_id),
+    )
+    conn.commit()
+
+
+def blank_accounts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """ไอดีเปล่า = ยังไม่ขึ้นร้าน (platform_account_id ว่าง) — พร้อมเอาไปออกเกมใหม่"""
+    return conn.execute(
+        """SELECT a.* FROM account a
+           WHERE a.platform_account_id IS NULL AND a.status = 'active'
+           ORDER BY a.label"""
+    ).fetchall()
 
 
 def find_account(conn: sqlite3.Connection, label: str) -> sqlite3.Row | None:
